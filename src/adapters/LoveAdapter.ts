@@ -27,12 +27,26 @@ export class LoveAdapter extends BaseCoreBridge {
     pointer: true,
   };
 
+  private static readonly RETROPAD_TO_KEY: Record<
+    number,
+    { key: string; code: string; keyCode: number }
+  > = {
+    0: { key: 'x', code: 'KeyX', keyCode: 88 }, // RETROPAD_B
+    1: { key: 's', code: 'KeyS', keyCode: 83 }, // RETROPAD_Y
+    2: { key: ' ', code: 'Space', keyCode: 32 }, // RETROPAD_SELECT
+    3: { key: 'Enter', code: 'Enter', keyCode: 13 }, // RETROPAD_START
+    4: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 }, // RETROPAD_UP
+    5: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 }, // RETROPAD_DOWN
+    6: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 }, // RETROPAD_LEFT
+    7: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 }, // RETROPAD_RIGHT
+    8: { key: 'z', code: 'KeyZ', keyCode: 90 }, // RETROPAD_A
+    9: { key: 'a', code: 'KeyA', keyCode: 65 }, // RETROPAD_X
+  };
+
   private _module: any = null;
   private _gameData: Uint8Array | null = null;
   private _fileName = 'game.love';
   private _fps = 60;
-  private _started = false;
-  private _blobUrlsToRevoke: string[] = [];
   private _scriptElement: HTMLScriptElement | null = null;
 
   public async init(context: AdapterContext): Promise<void> {
@@ -71,48 +85,41 @@ export class LoveAdapter extends BaseCoreBridge {
 
   public override start(): void {
     super.start();
-    if (!this._started && this._module) {
-      this._started = true;
-      if (typeof this._module.resumeMainLoop === 'function') {
-        this._module.resumeMainLoop();
-      }
-    } else {
-      this.resume();
-    }
+    this.resume();
   }
 
   public override pause(): void {
     super.pause();
-    if (this._module && typeof this._module.pauseMainLoop === 'function') {
-      this._module.pauseMainLoop();
+    if (this._module?.Browser?.mainLoop?.pause) {
+      try {
+        this._module.Browser.mainLoop.pause();
+      } catch (_) {}
     }
   }
 
   public override resume(): void {
     super.resume();
-    if (this._module && typeof this._module.resumeMainLoop === 'function') {
-      this._module.resumeMainLoop();
+    if (this._module?.Browser?.mainLoop?.resume) {
+      try {
+        this._module.Browser.mainLoop.resume();
+      } catch (_) {}
     }
   }
 
   public override async stop(): Promise<void> {
+    this.pause();
     await super.stop();
-    if (this._module) {
-      if (typeof this._module.pauseMainLoop === 'function') {
-        try {
-          this._module.pauseMainLoop();
-        } catch (_) {}
-      }
-      if (typeof this._module.exit === 'function') {
-        try {
-          this._module.exit(0);
-        } catch (_) {}
-      }
+  }
+
+  public override async restart(): Promise<void> {
+    if (this._gameData) {
+      await this.destroy();
+      await this.loadGame(this._gameData, { fileName: this._fileName });
     }
   }
 
   public override async destroy(): Promise<void> {
-    await super.destroy();
+    this.pause();
     if (this._module) {
       if (typeof this._module.exit === 'function') {
         try {
@@ -125,14 +132,70 @@ export class LoveAdapter extends BaseCoreBridge {
       this._scriptElement.parentNode.removeChild(this._scriptElement);
       this._scriptElement = null;
     }
-    for (const url of this._blobUrlsToRevoke) {
+    if (typeof window !== 'undefined') {
       try {
-        URL.revokeObjectURL(url);
-      } catch (_) {}
+        delete (window as any).Love;
+        delete (window as any).Module;
+      } catch (_) {
+        (window as any).Love = undefined;
+        (window as any).Module = undefined;
+      }
     }
-    this._blobUrlsToRevoke = [];
     this._gameData = null;
-    this._started = false;
+    await super.destroy();
+  }
+
+  public rawSendButton(
+    _player: number,
+    buttonId: number,
+    pressed: boolean,
+  ): void {
+    const keyInfo = LoveAdapter.RETROPAD_TO_KEY[buttonId];
+    if (!keyInfo) return;
+
+    const eventType = pressed ? 'keydown' : 'keyup';
+    const eventInit: KeyboardEventInit = {
+      key: keyInfo.key,
+      code: keyInfo.code,
+      bubbles: true,
+      cancelable: true,
+    };
+
+    const canvas = this.context?.canvas;
+    const target = canvas || (typeof window !== 'undefined' ? window : null);
+    if (!target) return;
+
+    try {
+      const evt = new KeyboardEvent(eventType, eventInit);
+      target.dispatchEvent(evt);
+    } catch (_) {}
+  }
+
+  public rawSendAxis(player: number, axisId: number, value: number): void {
+    const deadzone = 0.5;
+    if (axisId === 0) {
+      if (value > deadzone) {
+        this.rawSendButton(player, 7, true);
+        this.rawSendButton(player, 6, false);
+      } else if (value < -deadzone) {
+        this.rawSendButton(player, 6, true);
+        this.rawSendButton(player, 7, false);
+      } else {
+        this.rawSendButton(player, 6, false);
+        this.rawSendButton(player, 7, false);
+      }
+    } else if (axisId === 1) {
+      if (value > deadzone) {
+        this.rawSendButton(player, 5, true);
+        this.rawSendButton(player, 4, false);
+      } else if (value < -deadzone) {
+        this.rawSendButton(player, 4, true);
+        this.rawSendButton(player, 5, false);
+      } else {
+        this.rawSendButton(player, 4, false);
+        this.rawSendButton(player, 5, false);
+      }
+    }
   }
 
   public override rawGetFps(): number {
@@ -165,17 +228,6 @@ export class LoveAdapter extends BaseCoreBridge {
     const fallbackWasmUrl =
       'https://cdn.jsdelivr.net/gh/2dengine/love.js@main/11.5/love.wasm';
 
-    let jsText = '';
-    try {
-      const res = await fetch(primaryJsUrl);
-      if (res.ok) jsText = await res.text();
-    } catch (_) {}
-    if (!jsText) {
-      const res = await fetch(fallbackJsUrl);
-      if (!res.ok) throw new Error('[LoveAdapter] Failed to fetch love.js');
-      jsText = await res.text();
-    }
-
     let wasmBuffer: ArrayBuffer | null = null;
     try {
       const res = await fetch(primaryWasmUrl);
@@ -187,8 +239,6 @@ export class LoveAdapter extends BaseCoreBridge {
       wasmBuffer = await res.arrayBuffer();
     }
 
-    const wasmBytes = new Uint8Array(wasmBuffer);
-
     const isDebug = !!this.context?.debug;
     const gameBytes = this._gameData || new Uint8Array();
     const gameName = this._fileName;
@@ -198,7 +248,11 @@ export class LoveAdapter extends BaseCoreBridge {
       arguments: [gameName],
       args: [gameName],
       cache: {
-        '11.5/love.wasm': wasmBytes,
+        '11.5/love.wasm': wasmBuffer,
+      },
+      locateFile: (path: string) => {
+        if (path.endsWith('.wasm')) return primaryWasmUrl;
+        return path;
       },
       INITIAL_MEMORY: Math.min(4 * gameBytes.length + 33554432, 1073741824),
       print: (text: string) => {
@@ -212,6 +266,9 @@ export class LoveAdapter extends BaseCoreBridge {
       prerun: () => {
         try {
           if (moduleObj.FS) {
+            try {
+              moduleObj.FS.unlink(`/${gameName}`);
+            } catch (_) {}
             moduleObj.FS.createDataFile(
               '/',
               gameName,
@@ -231,11 +288,13 @@ export class LoveAdapter extends BaseCoreBridge {
       (window as any).Module = moduleObj;
     }
 
-    const jsBlob = new Blob([jsText], { type: 'application/javascript' });
-    const jsUrl = URL.createObjectURL(jsBlob);
-    this._blobUrlsToRevoke.push(jsUrl);
-
-    await this._loadScript(jsUrl);
+    if (typeof (window as any).Love !== 'function') {
+      try {
+        await this._loadScript(primaryJsUrl);
+      } catch (_) {
+        await this._loadScript(fallbackJsUrl);
+      }
+    }
 
     const loveFactory = (window as any).Love;
     if (typeof loveFactory !== 'function') {
@@ -256,7 +315,7 @@ export class LoveAdapter extends BaseCoreBridge {
       script.async = true;
       script.onload = () => resolve();
       script.onerror = (err) =>
-        reject(new Error(`[LoveAdapter] Failed to load script: ${err}`));
+        reject(new Error(`[LoveAdapter] Failed to load script ${url}: ${err}`));
       this._scriptElement = script;
       document.body.appendChild(script);
     });
