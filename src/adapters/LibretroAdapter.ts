@@ -1,0 +1,962 @@
+import type {
+  CoreCapabilities,
+  CoreOptionDefinition,
+  GameLoadOptions,
+} from '../core/types';
+import { BaseCoreBridge } from './BaseCoreBridge';
+import type { AdapterContext } from './ICoreAdapter';
+
+/**
+ * LibretroAdapter manages Emscripten-compiled Libretro cores from both
+ * EmulatorJS data bundles and web.libretro.com (including retro8 for PICO-8).
+ */
+export class LibretroAdapter extends BaseCoreBridge {
+  public readonly id: string;
+  public readonly name: string;
+  public readonly system: string;
+  public readonly capabilities: CoreCapabilities;
+
+  private _module: any = null;
+  private _romData: Uint8Array | null = null;
+  private _romPath = '/home/web_user/retroarch/userdata/content/rom.bin';
+  private _sramPath = '/home/web_user/retroarch/userdata/saves/rom.srm';
+  private _fps = 60;
+  private _coreOptionsMap: Record<string, string> = {};
+  private _started = false;
+
+  constructor(
+    id: string,
+    name: string,
+    system: string,
+    capabilities: CoreCapabilities,
+  ) {
+    super();
+    this.id = id;
+    this.name = name;
+    this.system = system;
+    this.capabilities = capabilities;
+  }
+
+  public async init(context: AdapterContext): Promise<void> {
+    await super.init(context);
+  }
+
+  public async loadGame(
+    rom: ArrayBuffer | Blob | string | Uint8Array,
+    options?: GameLoadOptions,
+  ): Promise<void> {
+    if (typeof rom === 'string') {
+      const resp = await fetch(rom, { headers: this.context?.fetchHeaders });
+      if (!resp.ok)
+        throw new Error(
+          `[LibretroAdapter] Failed to fetch ROM from URL: ${rom}`,
+        );
+      const buf = await resp.arrayBuffer();
+      this._romData = new Uint8Array(buf);
+    } else if (rom instanceof Blob) {
+      const buf = await rom.arrayBuffer();
+      this._romData = new Uint8Array(buf);
+    } else if (rom instanceof Uint8Array) {
+      this._romData = rom;
+    } else {
+      this._romData = new Uint8Array(rom);
+    }
+
+    const safeName = options?.fileName || 'rom.bin';
+    this._romPath = `/home/web_user/retroarch/userdata/content/${safeName}`;
+    const baseName = safeName.replace(/\.[^.]+$/, '');
+    this._sramPath = `/home/web_user/retroarch/userdata/saves/${baseName}.srm`;
+
+    await this._instantiateCoreModule();
+
+    if (options?.initialSram && options.initialSram instanceof Uint8Array) {
+      await this.rawSetSram(options.initialSram);
+    }
+
+    this.start();
+  }
+
+  public override start(): void {
+    super.start();
+    if (!this._module) return;
+
+    if (!this._started) {
+      this._started = true;
+      if (typeof this._module.callMain === 'function') {
+        try {
+          const args = this._module.arguments || [
+            '-v',
+            this._romPath,
+            '-c',
+            '/home/web_user/retroarch/userdata/retroarch.cfg',
+          ];
+          this._module.callMain(args);
+        } catch (err: any) {
+          if (err && err.name !== 'ExitStatus') {
+            console.error('[LibretroAdapter] Error starting callMain:', err);
+          }
+        }
+      }
+    } else {
+      this.resume();
+    }
+  }
+
+  public override pause(): void {
+    super.pause();
+    if (this._module) {
+      if (typeof this._module.pauseMainLoop === 'function') {
+        this._module.pauseMainLoop();
+      } else if (typeof this._module.EmscriptenSendCommand === 'function') {
+        this._module.EmscriptenSendCommand('PAUSE_TOGGLE');
+      }
+    }
+  }
+
+  public override resume(): void {
+    super.resume();
+    if (!this._started) {
+      this.start();
+      return;
+    }
+    if (this._module) {
+      if (typeof this._module.resumeMainLoop === 'function') {
+        this._module.resumeMainLoop();
+      } else if (typeof this._module.EmscriptenSendCommand === 'function') {
+        this._module.EmscriptenSendCommand('PAUSE_TOGGLE');
+      }
+    }
+  }
+
+  public override async stop(): Promise<void> {
+    await super.stop();
+    if (this._module && typeof this._module.pauseMainLoop === 'function') {
+      this._module.pauseMainLoop();
+    }
+    await this.rawFlushSram();
+  }
+
+  public override async restart(): Promise<void> {
+    if (this._module) {
+      if (typeof this._module.EmscriptenSendCommand === 'function') {
+        this._module.EmscriptenSendCommand('RESET');
+      } else {
+        this._dispatchKeyboardFallback(100, true);
+        setTimeout(() => this._dispatchKeyboardFallback(100, false), 50);
+      }
+      this.resume();
+    }
+  }
+
+  public override async destroy(): Promise<void> {
+    await super.destroy();
+    if (this._module) {
+      if (typeof this._module.abort === 'function') {
+        try {
+          this._module.abort();
+        } catch (_) {}
+      }
+      this._module = null;
+    }
+    this._romData = null;
+    this._started = false;
+  }
+
+  // --- Save States ---
+  public override async rawSaveState(slot = 0): Promise<Uint8Array | null> {
+    if (!this._module) return null;
+
+    // Check if this core is running under EmulatorJS gameManager
+    if (
+      this._module.gameManager &&
+      typeof this._module.gameManager.getState === 'function'
+    ) {
+      const state = this._module.gameManager.getState();
+      return state ? new Uint8Array(state) : null;
+    }
+
+    // Try direct Libretro C-binding serialization
+    if (
+      typeof this._module._retro_serialize === 'function' &&
+      typeof this._module._retro_serialize_size === 'function'
+    ) {
+      const size = this._module._retro_serialize_size();
+      if (size > 0) {
+        const ptr = this._module._malloc(size);
+        const success = this._module._retro_serialize(ptr, size);
+        if (success) {
+          const result = new Uint8Array(
+            this._module.HEAPU8.buffer,
+            ptr,
+            size,
+          ).slice();
+          this._module._free(ptr);
+          return result;
+        }
+        this._module._free(ptr);
+      }
+    }
+
+    // RetroArch Web WASM: dispatch command and read the state snapshot from virtual FS
+    if (this._module.FS) {
+      const statesDir = '/home/web_user/retroarch/userdata/states';
+      const contentDir = '/home/web_user/retroarch/userdata/content';
+      this._ensureDirectories(this._module.FS, statesDir);
+      this._ensureDirectories(this._module.FS, contentDir);
+
+      // Clean existing state files so we know the next read is fresh
+      const oldFiles = this._findStateFiles(this._module.FS);
+      for (const item of oldFiles) {
+        try {
+          this._module.FS.unlink(item.path);
+        } catch (_) {}
+      }
+
+      // Trigger save state exactly once
+      if (
+        typeof this._module.EmscriptenSendCommand === 'function' ||
+        typeof this._module.ccall === 'function'
+      ) {
+        const cmd = slot > 0 ? `SAVE_STATE_SLOT ${slot}` : 'SAVE_STATE';
+        this._sendCommand(cmd);
+      } else {
+        // Fallback to keyboard hotkey only if command interface is not exposed
+        this._dispatchKeyboardFallback(101, true); // F2
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        this._dispatchKeyboardFallback(101, false);
+      }
+
+      // Poll until RetroArch writes the new state file (up to 2000ms)
+      for (let attempt = 0; attempt < 40; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const found = this._findStateFiles(this._module.FS);
+        if (found.length > 0) {
+          this.context?.onLog?.(
+            `[LibretroAdapter] Captured state snapshot: ${found[0].path} (${found[0].data.byteLength} bytes)`,
+            'info',
+          );
+          return found[0].data;
+        }
+      }
+      this.context?.onLog?.(
+        `[LibretroAdapter] Save state polling timed out. No state file in FS.`,
+        'warn',
+      );
+    }
+
+    return null;
+  }
+
+  public override async rawLoadState(
+    data: Uint8Array,
+    slot = 0,
+  ): Promise<boolean> {
+    if (!this._module) return false;
+
+    // EmulatorJS gameManager loadState
+    if (
+      this._module.gameManager &&
+      typeof this._module.gameManager.loadState === 'function'
+    ) {
+      this._module.gameManager.loadState(data);
+      return true;
+    }
+
+    // Direct Libretro C-binding deserialization
+    if (typeof this._module._retro_unserialize === 'function') {
+      const ptr = this._module._malloc(data.byteLength);
+      this._module.HEAPU8.set(data, ptr);
+      const success = this._module._retro_unserialize(ptr, data.byteLength);
+      this._module._free(ptr);
+      return !!success;
+    }
+
+    // RetroArch Web: write state snapshot to virtual FS then dispatch LOAD_STATE
+    if (this._module.FS) {
+      const statesDir = '/home/web_user/retroarch/userdata/states';
+      const contentDir = '/home/web_user/retroarch/userdata/content';
+      try {
+        this._ensureDirectories(this._module.FS, statesDir);
+        this._ensureDirectories(this._module.FS, contentDir);
+        const fileName = this._romPath.split('/').pop() || 'rom.bin';
+        const baseName = fileName.replace(/\.[^.]+$/, '');
+
+        // Write snapshot to states directory
+        this._module.FS.writeFile(`${statesDir}/${baseName}.state`, data);
+        this._module.FS.writeFile(`${statesDir}/${baseName}.state.auto`, data);
+        this._module.FS.writeFile(`${statesDir}/${baseName}.state0`, data);
+        this._module.FS.writeFile(`${statesDir}/${baseName}.state1`, data);
+        if (slot > 1) {
+          this._module.FS.writeFile(
+            `${statesDir}/${baseName}.state${slot}`,
+            data,
+          );
+        }
+
+        // Write snapshot to content directory (RetroArch default fallback)
+        this._module.FS.writeFile(`${contentDir}/${baseName}.state`, data);
+        this._module.FS.writeFile(`${contentDir}/${baseName}.state.auto`, data);
+        this._module.FS.writeFile(`${contentDir}/${baseName}.state0`, data);
+        this._module.FS.writeFile(`${contentDir}/${baseName}.state1`, data);
+        if (slot > 1) {
+          this._module.FS.writeFile(
+            `${contentDir}/${baseName}.state${slot}`,
+            data,
+          );
+        }
+
+        // Also overwrite any existing state file discovered anywhere in FS
+        const existing = this._findStateFiles(this._module.FS);
+        for (const item of existing) {
+          try {
+            this._module.FS.writeFile(item.path, data);
+          } catch (_) {}
+        }
+
+        // Trigger load state exactly once
+        if (
+          typeof this._module.EmscriptenSendCommand === 'function' ||
+          typeof this._module.ccall === 'function'
+        ) {
+          const cmd = slot > 0 ? `LOAD_STATE_SLOT ${slot}` : 'LOAD_STATE';
+          this._sendCommand(cmd);
+        } else {
+          // Fallback to keyboard hotkey only if command interface is not exposed
+          this._dispatchKeyboardFallback(102, true); // F4
+          await new Promise((r) => setTimeout(r, 60));
+          this._dispatchKeyboardFallback(102, false);
+        }
+
+        this.context?.onLog?.(
+          `[LibretroAdapter] Injected state data into FS and triggered LOAD_STATE`,
+          'info',
+        );
+        return true;
+      } catch (err) {
+        console.warn('[LibretroAdapter] Error injecting state into FS:', err);
+      }
+    }
+
+    return false;
+  }
+
+  // --- In-Game Battery SRAM ---
+  public override async rawGetSram(): Promise<Uint8Array | null> {
+    if (!this._module) return null;
+
+    if (
+      this._module.gameManager &&
+      typeof this._module.gameManager.getSaveFile === 'function'
+    ) {
+      const raw = this._module.gameManager.getSaveFile();
+      return raw ? new Uint8Array(raw) : null;
+    }
+
+    if (this._module.FS && this._sramPath) {
+      try {
+        if (this._module.FS.analyzePath(this._sramPath).exists) {
+          const fileData = this._module.FS.readFile(this._sramPath);
+          return new Uint8Array(fileData);
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  public override async rawSetSram(
+    data: Uint8Array | Record<string, Uint8Array>,
+  ): Promise<boolean> {
+    if (!this._module || !(data instanceof Uint8Array)) return false;
+
+    if (this._module.FS) {
+      try {
+        const dir = this._sramPath.substring(
+          0,
+          this._sramPath.lastIndexOf('/'),
+        );
+        this._ensureDirectories(this._module.FS, dir);
+        this._module.FS.writeFile(this._sramPath, data);
+
+        if (
+          this._module.gameManager &&
+          typeof this._module.gameManager.loadSaveFiles === 'function'
+        ) {
+          this._module.gameManager.loadSaveFiles();
+        }
+        return true;
+      } catch (e) {
+        console.warn(
+          '[LibretroAdapter] Failed to write SRAM to virtual FS:',
+          e,
+        );
+      }
+    }
+
+    return false;
+  }
+
+  public override async rawFlushSram(): Promise<void> {
+    if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.saveSaveFiles === 'function'
+    ) {
+      try {
+        this._module.gameManager.saveSaveFiles();
+      } catch (_) {}
+    }
+  }
+
+  public override getSramPath(): string {
+    return this._sramPath;
+  }
+
+  // --- BIOS / System Firmware ---
+  public override async rawSetBios(
+    name: string,
+    data: Uint8Array,
+  ): Promise<void> {
+    const cleanName = name.replace(/^.*[\\/]/, '');
+    const sysDir = '/home/web_user/retroarch/userdata/system';
+    if (this._module?.FS) {
+      this._ensureDirectories(this._module.FS, sysDir);
+      this._module.FS.writeFile(`${sysDir}/${cleanName}`, data);
+      this.context?.onLog?.(
+        `[LibretroAdapter] Injected BIOS: ${cleanName} (${data.byteLength} bytes)`,
+        'info',
+      );
+    }
+  }
+
+  // --- Memory Inspection (RetroAchievements / RAM) ---
+  public override rawReadMemory(
+    address: number,
+    length: number,
+  ): Uint8Array | null {
+    if (!this._module) return null;
+    try {
+      if (typeof this._module._retro_get_memory_data === 'function') {
+        const ptr = this._module._retro_get_memory_data(0); // RETRO_MEMORY_SYSTEM_RAM = 0
+        const totalSize =
+          typeof this._module._retro_get_memory_size === 'function'
+            ? this._module._retro_get_memory_size(0)
+            : 0;
+        if (
+          ptr &&
+          totalSize > 0 &&
+          address + length <= totalSize &&
+          this._module.HEAPU8
+        ) {
+          return new Uint8Array(
+            this._module.HEAPU8.buffer,
+            ptr + address,
+            length,
+          ).slice();
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  public override rawGetMemorySize(): number {
+    if (!this._module) return 0;
+    try {
+      if (typeof this._module._retro_get_memory_size === 'function') {
+        return this._module._retro_get_memory_size(0);
+      }
+    } catch (_) {}
+    return 0;
+  }
+
+  // --- Core Options ---
+  public override rawGetOptions(): CoreOptionDefinition[] {
+    if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.getCoreOptions === 'function'
+    ) {
+      const raw = this._module.gameManager.getCoreOptions();
+      if (typeof raw === 'string') {
+        return this._parseCoreOptionsString(raw);
+      }
+    }
+    return [];
+  }
+
+  public override rawSetOption(key: string, value: string): void {
+    this._coreOptionsMap[key] = value;
+    if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.setVariable === 'function'
+    ) {
+      try {
+        this._module.gameManager.setVariable(key, value);
+      } catch (_) {}
+    }
+  }
+
+  // --- Cheats ---
+  public override rawSetCheat(
+    index: number,
+    enabled: boolean,
+    code: string,
+  ): void {
+    if (this._module && typeof this._module.cheatChanged === 'function') {
+      try {
+        this._module.cheatChanged(enabled, code, index);
+      } catch (_) {}
+    }
+  }
+
+  public override rawResetCheats(): void {
+    if (this._module && typeof this._module._retro_cheat_reset === 'function') {
+      try {
+        this._module._retro_cheat_reset();
+      } catch (_) {}
+    }
+  }
+
+  // --- Multi-Disc ---
+  public override rawGetDiscCount(): number {
+    return 1;
+  }
+
+  public override async rawChangeDisc(index: number): Promise<boolean> {
+    if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.loadDisc === 'function'
+    ) {
+      try {
+        this._module.gameManager.loadDisc(index);
+        return true;
+      } catch (_) {}
+    }
+    return false;
+  }
+
+  // --- Input ---
+  public override rawSendButton(
+    player: number,
+    buttonId: number,
+    pressed: boolean,
+  ): void {
+    if (
+      this._module?.gamepad &&
+      typeof this._module.gamepad.sendButton === 'function'
+    ) {
+      this._module.gamepad.sendButton(player, buttonId, pressed);
+    } else if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.simulateInput === 'function'
+    ) {
+      this._module.gameManager.simulateInput(player, buttonId, pressed ? 1 : 0);
+    } else if (this._module?.simulateGamepadButton) {
+      this._module.simulateGamepadButton(player, buttonId, pressed);
+    } else {
+      // Direct DOM KeyboardEvent fallback for RetroArch Web Player
+      this._dispatchKeyboardFallback(buttonId, pressed);
+    }
+  }
+
+  private _sendCommand(cmd: string): void {
+    if (!this._module) return;
+    try {
+      if (typeof this._module.EmscriptenSendCommand === 'function') {
+        this._module.EmscriptenSendCommand(cmd);
+      } else if (typeof this._module.ccall === 'function') {
+        this._module.ccall('EmscriptenSendCommand', null, ['string'], [cmd]);
+      }
+    } catch (e) {
+      console.warn('[LibretroAdapter] _sendCommand failed for:', cmd, e);
+    }
+  }
+
+  private _dispatchKeyboardFallback(buttonId: number, pressed: boolean): void {
+    const keyMap: Record<
+      number,
+      { key: string; code: string; keyCode: number }
+    > = {
+      4: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
+      5: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
+      6: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
+      7: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+      0: { key: 'z', code: 'KeyZ', keyCode: 90 }, // B button
+      8: { key: 'x', code: 'KeyX', keyCode: 88 }, // A button
+      1: { key: 'a', code: 'KeyA', keyCode: 65 }, // Y button
+      9: { key: 's', code: 'KeyS', keyCode: 83 }, // X button
+      2: { key: 'Shift', code: 'ShiftRight', keyCode: 16 }, // Select
+      3: { key: 'Enter', code: 'Enter', keyCode: 13 }, // Start
+      10: { key: 'q', code: 'KeyQ', keyCode: 81 }, // L
+      11: { key: 'w', code: 'KeyW', keyCode: 87 }, // R
+      100: { key: 'h', code: 'KeyH', keyCode: 72 }, // Reset
+      101: { key: 'F2', code: 'F2', keyCode: 113 }, // Save State
+      102: { key: 'F4', code: 'F4', keyCode: 115 }, // Load State
+    };
+
+    const def = keyMap[buttonId];
+    if (def) {
+      const type = pressed ? 'keydown' : 'keyup';
+      const event = new KeyboardEvent(type, {
+        key: def.key,
+        code: def.code,
+        keyCode: def.keyCode,
+        which: def.keyCode,
+        bubbles: true,
+        cancelable: true,
+      });
+      if (this.context?.canvas) {
+        this.context.canvas.dispatchEvent(event);
+      }
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(event);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(event);
+      }
+    }
+  }
+
+  public override rawSendAxis(
+    player: number,
+    axisId: number,
+    value: number,
+  ): void {
+    if (
+      this._module?.gamepad &&
+      typeof this._module.gamepad.sendAxis === 'function'
+    ) {
+      this._module.gamepad.sendAxis(player, axisId, value);
+    } else if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.simulateInput === 'function'
+    ) {
+      const deadzone = 0.05;
+      const absVal = Math.abs(value);
+      const intVal = absVal > deadzone ? Math.round(absVal * 32767) : 0;
+
+      // Map standard axis ID to EmulatorJS analog direction IDs
+      if (axisId === 0) {
+        // L_STICK_X
+        this._module.gameManager.simulateInput(
+          player,
+          16,
+          value > deadzone ? intVal : 0,
+        ); // RIGHT
+        this._module.gameManager.simulateInput(
+          player,
+          17,
+          value < -deadzone ? intVal : 0,
+        ); // LEFT
+      } else if (axisId === 1) {
+        // L_STICK_Y
+        this._module.gameManager.simulateInput(
+          player,
+          18,
+          value > deadzone ? intVal : 0,
+        ); // DOWN
+        this._module.gameManager.simulateInput(
+          player,
+          19,
+          value < -deadzone ? intVal : 0,
+        ); // UP
+      } else if (axisId === 2) {
+        // R_STICK_X
+        this._module.gameManager.simulateInput(
+          player,
+          20,
+          value > deadzone ? intVal : 0,
+        ); // RIGHT
+        this._module.gameManager.simulateInput(
+          player,
+          21,
+          value < -deadzone ? intVal : 0,
+        ); // LEFT
+      } else if (axisId === 3) {
+        // R_STICK_Y
+        this._module.gameManager.simulateInput(
+          player,
+          22,
+          value > deadzone ? intVal : 0,
+        ); // DOWN
+        this._module.gameManager.simulateInput(
+          player,
+          23,
+          value < -deadzone ? intVal : 0,
+        ); // UP
+      }
+    }
+  }
+
+  public override rawGetFps(): number {
+    return this._fps;
+  }
+
+  private async _instantiateCoreModule(): Promise<void> {
+    const baseUrl = this.context?.assetBaseUrl || '';
+    const coreScriptUrl = `${baseUrl.replace(/\/$/, '')}/${this.id}_libretro.js`;
+    const corePath = `/home/web_user/retroarch/cores/${this.id}_libretro.core`;
+    const cfgPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
+
+    if (this.context?.canvas && !this.context.canvas.id) {
+      this.context.canvas.id = 'canvas';
+    }
+
+    const isDebug = !!this.context?.debug;
+    const coreArgs = isDebug
+      ? ['-v', '-c', cfgPath, this._romPath]
+      : ['-c', cfgPath, this._romPath];
+
+    const moduleOverrides: any = {
+      canvas: this.context?.canvas,
+      webglContextAttributes: {
+        preserveDrawingBuffer: true,
+        antialias: false,
+        powerPreference: 'high-performance',
+      },
+      noInitialRun: true,
+      arguments: coreArgs,
+      corePath,
+      locateFile: (path: string, prefix: string) => {
+        if (baseUrl) {
+          return `${baseUrl.replace(/\/$/, '')}/${path}`;
+        }
+        return (prefix || '') + path;
+      },
+      ENV: {
+        LIBRARY_PATH: corePath,
+      },
+      preRun: [
+        (mod: any) => {
+          if (mod.ENV) {
+            mod.ENV.LIBRARY_PATH = corePath;
+          }
+          if (mod.FS) {
+            this._ensureDirectories(mod.FS, '/home');
+            this._ensureDirectories(mod.FS, '/home/web_user');
+            this._ensureDirectories(mod.FS, '/home/web_user/retroarch');
+            this._ensureDirectories(mod.FS, '/home/web_user/retroarch/cores');
+            this._ensureDirectories(
+              mod.FS,
+              '/home/web_user/retroarch/userdata',
+            );
+            this._ensureDirectories(
+              mod.FS,
+              '/home/web_user/retroarch/userdata/content',
+            );
+            this._ensureDirectories(
+              mod.FS,
+              '/home/web_user/retroarch/userdata/saves',
+            );
+            this._ensureDirectories(
+              mod.FS,
+              '/home/web_user/retroarch/userdata/states',
+            );
+            this._ensureDirectories(
+              mod.FS,
+              '/home/web_user/retroarch/userdata/system',
+            );
+
+            // Fake core file required by RetroArch Emscripten frontend
+            try {
+              mod.FS.writeFile(corePath, new Uint8Array());
+            } catch (_) {}
+
+            // Optimized default retroarch.cfg
+            const minimalCfg = [
+              'video_driver = "gl"',
+              'audio_driver = "rwebaudio"',
+              'input_driver = "rwebinput"',
+              'video_vsync = "false"',
+              'video_smooth = "false"',
+              'video_threaded = "true"',
+              'video_hard_sync = "false"',
+              'video_frame_delay = "0"',
+              'audio_latency = "64"',
+              'audio_sync = "true"',
+              'savefile_directory = "/home/web_user/retroarch/userdata/saves"',
+              'savestate_directory = "/home/web_user/retroarch/userdata/states"',
+              'system_directory = "/home/web_user/retroarch/userdata/system"',
+              'content_directory = "/home/web_user/retroarch/userdata/content"',
+              'rgui_browser_directory = "/home/web_user/retroarch/userdata/content"',
+              'input_enable_hotkey = "nul"',
+              'input_enable_hotkey_btn = "nul"',
+              'input_enable_hotkey_axis = "nul"',
+              'input_save_state = "f2"',
+              'input_load_state = "f4"',
+              'input_reset = "h"',
+              'network_cmd_enable = "true"',
+              'stdin_cmd_enable = "false"',
+              '',
+            ].join('\n');
+
+            const ra = this.context?.retroAchievements;
+            let finalCfg = minimalCfg;
+            if (ra && ra.username) {
+              finalCfg += [
+                'cheevos_enable = "true"',
+                `cheevos_username = "${ra.username}"`,
+                `cheevos_token = "${ra.token || ''}"`,
+                `cheevos_password = "${ra.token || ''}"`,
+                `cheevos_hardcore_mode_enable = "${ra.hardcore ? 'true' : 'false'}"`,
+                'cheevos_badges_enable = "true"',
+                'cheevos_visibility_summary = "true"',
+                'cheevos_visibility_unlock = "true"',
+                'cheevos_visibility_mastery = "true"',
+                '',
+              ].join('\n');
+            }
+
+            try {
+              mod.FS.writeFile(cfgPath, finalCfg);
+            } catch (_) {}
+
+            // Write ROM data into virtual FS
+            if (this._romData) {
+              try {
+                mod.FS.writeFile(this._romPath, this._romData);
+              } catch (e) {
+                console.error(
+                  '[LibretroAdapter] Error writing ROM to virtual FS:',
+                  e,
+                );
+              }
+            }
+          }
+        },
+      ],
+      stdin: () => null,
+      print: (text: string) => {
+        if (isDebug) console.log(`[${this.id}]`, text);
+        this.context?.onLog?.(text, 'info');
+      },
+      printErr: (text: string) => {
+        if (isDebug) console.error(`[${this.id} Err]`, text);
+        this.context?.onLog?.(text, 'error');
+      },
+    };
+
+    // Dynamically import core ES module
+    try {
+      const moduleExport = await import(/* @vite-ignore */ coreScriptUrl);
+      const factory =
+        moduleExport.default || moduleExport[this.id] || moduleExport;
+      if (typeof factory !== 'function') {
+        throw new Error(
+          `Core script at "${coreScriptUrl}" did not provide a callable factory function.`,
+        );
+      }
+      this._module = await factory(moduleOverrides);
+    } catch (err: any) {
+      // If direct CDN import was attempted and failed due to CORS, attempt the local Vite proxy
+      if (
+        coreScriptUrl.startsWith('http') &&
+        !coreScriptUrl.includes('/libretro-cores/')
+      ) {
+        const fallbackUrl = `/libretro-cores/${this.id}_libretro.js`;
+        try {
+          const fallbackExport = await import(/* @vite-ignore */ fallbackUrl);
+          const fallbackFactory =
+            fallbackExport.default || fallbackExport[this.id] || fallbackExport;
+          if (typeof fallbackFactory === 'function') {
+            moduleOverrides.locateFile = (path: string) =>
+              `/libretro-cores/${path}`;
+            this._module = await fallbackFactory(moduleOverrides);
+            return;
+          }
+        } catch (fallbackErr: any) {
+          console.error(
+            `[LibretroAdapter] Proxy fallback failed:`,
+            fallbackErr,
+          );
+        }
+      }
+      const msg = `Failed to load WASM core from "${coreScriptUrl}": ${err?.message || err}`;
+      console.error('[LibretroAdapter]', msg, err);
+      this.context?.onLog?.(msg, 'error');
+      throw new Error(msg);
+    }
+  }
+
+  private _findStateFiles(fs: any): { path: string; data: Uint8Array }[] {
+    const results: { path: string; data: Uint8Array }[] = [];
+    const visited = new Set<string>();
+
+    const walk = (dir: string) => {
+      if (visited.has(dir)) return;
+      visited.add(dir);
+      try {
+        if (!fs.analyzePath(dir).exists) return;
+        const entries = fs
+          .readdir(dir)
+          .filter((e: string) => e !== '.' && e !== '..');
+        for (const entry of entries) {
+          const fullPath = dir === '/' ? `/${entry}` : `${dir}/${entry}`;
+          try {
+            const stat = fs.stat(fullPath);
+            const isDir = fs.isDir
+              ? fs.isDir(stat.mode)
+              : (stat.mode & 0x4000) !== 0;
+            if (isDir) {
+              if (fullPath !== '/dev' && fullPath !== '/proc') {
+                walk(fullPath);
+              }
+            } else {
+              if (entry.includes('.state') || entry.endsWith('.state')) {
+                const data = fs.readFile(fullPath);
+                if (data && data.length > 0) {
+                  results.push({ path: fullPath, data: new Uint8Array(data) });
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
+    };
+
+    walk('/home/web_user/retroarch');
+    return results;
+  }
+
+  private _ensureDirectories(fs: any, path: string): void {
+    const parts = path.split('/').filter(Boolean);
+    let curr = '';
+    for (const part of parts) {
+      curr += `/${part}`;
+      try {
+        if (!fs.analyzePath(curr).exists) {
+          fs.mkdir(curr);
+        }
+      } catch (_) {}
+    }
+  }
+
+  private _parseCoreOptionsString(raw: string): CoreOptionDefinition[] {
+    const results: CoreOptionDefinition[] = [];
+    const lines = raw.split('\n');
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const parts = line.split(/;\s*/);
+      if (parts.length < 2) continue;
+
+      const [key, curr] = parts[0].split('|');
+      const choices = parts[1]
+        .split('|')
+        .map((c) => ({ value: c.trim(), label: c.trim() }));
+
+      if (key) {
+        results.push({
+          id: key.trim(),
+          label: key
+            .trim()
+            .replace(/^[^_]+_/, '')
+            .replace(/_/g, ' '),
+          type: 'enum',
+          choices,
+          defaultValue: choices[0]?.value || '',
+          currentValue: curr?.trim() || choices[0]?.value || '',
+        });
+      }
+    }
+    return results;
+  }
+}
