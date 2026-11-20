@@ -12,6 +12,44 @@ interface KeyMapInfo {
   keyCode: number;
 }
 
+class DiscImageDevice {
+  private module: any;
+  private doneFlag = false;
+  private file: Blob | File | null = null;
+
+  constructor(mod: any) {
+    this.module = mod;
+  }
+
+  public read(destPtr: number, position: number, length: number): void {
+    if (!this.file) return;
+    this.doneFlag = false;
+    this.file
+      .slice(position, position + length)
+      .arrayBuffer()
+      .then((buf) => {
+        this.module.HEAPU8.set(new Uint8Array(buf), destPtr);
+        this.doneFlag = true;
+      })
+      .catch((err) => {
+        console.error('[PlayAdapter] Error reading disc chunk:', err);
+        this.doneFlag = true;
+      });
+  }
+
+  public getFileSize(): number {
+    return this.file ? this.file.size : 0;
+  }
+
+  public isDone(): boolean {
+    return this.doneFlag;
+  }
+
+  public setFile(file: Blob | File): void {
+    this.file = file;
+  }
+}
+
 /**
  * PlayAdapter handles the Play! PS2 WebAssembly core.
  * Features chunked DiscImageDevice streaming, multithreaded workers,
@@ -23,7 +61,7 @@ export class PlayAdapter extends BaseCoreBridge {
   public readonly system = 'ps2';
   public readonly capabilities: CoreCapabilities = {
     saveStates: false,
-    sram: true, // /work/mc0 virtual memory card
+    sram: true,
     cheats: true,
     coreOptions: true,
     multiDisc: true,
@@ -77,10 +115,13 @@ export class PlayAdapter extends BaseCoreBridge {
     rom: ArrayBuffer | Blob | string | Uint8Array,
     options?: GameLoadOptions,
   ): Promise<void> {
+    const fileName = options?.fileName || 'game.iso';
+
     if (typeof rom === 'string') {
       const resp = await fetch(rom, { headers: this.context?.fetchHeaders });
-      if (!resp.ok)
+      if (!resp.ok) {
         throw new Error(`[PlayAdapter] Failed to fetch PS2 ROM from ${rom}`);
+      }
       this._romBlob = await resp.blob();
     } else if (rom instanceof Blob) {
       this._romBlob = rom;
@@ -91,6 +132,26 @@ export class PlayAdapter extends BaseCoreBridge {
     }
 
     await this._instantiatePlayRuntime();
+
+    if (!this._playModule) {
+      throw new Error('[PlayAdapter] Play! runtime failed to initialize.');
+    }
+
+    if (fileName.toLowerCase().endsWith('.elf')) {
+      const buf = await this._romBlob.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const stream = this._playModule.FS.open(fileName, 'w+');
+      this._playModule.FS.write(stream, bytes, 0, bytes.length, 0);
+      this._playModule.FS.close(stream);
+      if (typeof this._playModule.bootElf === 'function') {
+        this._playModule.bootElf(fileName);
+      }
+    } else {
+      this._playModule.discImageDevice.setFile(this._romBlob);
+      if (typeof this._playModule.bootDiscImage === 'function') {
+        this._playModule.bootDiscImage(fileName);
+      }
+    }
 
     if (
       options?.initialSram &&
@@ -109,7 +170,9 @@ export class PlayAdapter extends BaseCoreBridge {
       this._playModule &&
       typeof this._playModule.resumeMainLoop === 'function'
     ) {
-      this._playModule.resumeMainLoop();
+      try {
+        this._playModule.resumeMainLoop();
+      } catch (_) {}
     }
   }
 
@@ -119,7 +182,9 @@ export class PlayAdapter extends BaseCoreBridge {
       this._playModule &&
       typeof this._playModule.pauseMainLoop === 'function'
     ) {
-      this._playModule.pauseMainLoop();
+      try {
+        this._playModule.pauseMainLoop();
+      } catch (_) {}
     }
   }
 
@@ -129,7 +194,9 @@ export class PlayAdapter extends BaseCoreBridge {
       this._playModule &&
       typeof this._playModule.resumeMainLoop === 'function'
     ) {
-      this._playModule.resumeMainLoop();
+      try {
+        this._playModule.resumeMainLoop();
+      } catch (_) {}
     }
   }
 
@@ -139,12 +206,17 @@ export class PlayAdapter extends BaseCoreBridge {
       this._playModule &&
       typeof this._playModule.pauseMainLoop === 'function'
     ) {
-      this._playModule.pauseMainLoop();
+      try {
+        this._playModule.pauseMainLoop();
+      } catch (_) {}
     }
   }
 
   public override async destroy(): Promise<void> {
     await super.destroy();
+    if (this.context?.canvas && this.context.canvas.id === 'outputCanvas') {
+      this.context.canvas.id = 'canvas';
+    }
     if (this._playModule) {
       if (typeof this._playModule.abort === 'function') {
         try {
@@ -285,19 +357,15 @@ export class PlayAdapter extends BaseCoreBridge {
 
     const deadzone = 0.2;
     if (axisId === 0) {
-      // L_STICK_X
       this._simulateCanvasKey(this.PS2_KEY_MAP[16], value > deadzone);
       this._simulateCanvasKey(this.PS2_KEY_MAP[17], value < -deadzone);
     } else if (axisId === 1) {
-      // L_STICK_Y
       this._simulateCanvasKey(this.PS2_KEY_MAP[18], value > deadzone);
       this._simulateCanvasKey(this.PS2_KEY_MAP[19], value < -deadzone);
     } else if (axisId === 2) {
-      // R_STICK_X
       this._simulateCanvasKey(this.PS2_KEY_MAP[20], value > deadzone);
       this._simulateCanvasKey(this.PS2_KEY_MAP[21], value < -deadzone);
     } else if (axisId === 3) {
-      // R_STICK_Y
       this._simulateCanvasKey(this.PS2_KEY_MAP[22], value > deadzone);
       this._simulateCanvasKey(this.PS2_KEY_MAP[23], value < -deadzone);
     }
@@ -337,11 +405,19 @@ export class PlayAdapter extends BaseCoreBridge {
   }
 
   private async _instantiatePlayRuntime(): Promise<void> {
-    const baseUrl = this.context?.assetBaseUrl || '';
+    const baseUrl = this.context?.assetBaseUrl?.includes('play-cores')
+      ? this.context.assetBaseUrl
+      : '/play-cores';
     const playJsUrl = `${baseUrl.replace(/\/$/, '')}/Play.js`;
 
-    const moduleOverrides = {
+    // Play! WebAssembly core hardcodes #outputCanvas as its WebGL rendering target
+    if (this.context?.canvas) {
+      this.context.canvas.id = 'outputCanvas';
+    }
+
+    const moduleOverrides: any = {
       canvas: this.context?.canvas,
+      mainScriptUrlOrBlob: playJsUrl,
       locateFile: (path: string) => `${baseUrl.replace(/\/$/, '')}/${path}`,
       preRun: [
         (mod: any) => {
@@ -357,21 +433,37 @@ export class PlayAdapter extends BaseCoreBridge {
       ],
       print: (text: string) => {
         if (this.context?.debug) console.log('[Play!]', text);
+        this.context?.onLog?.(text, 'info');
       },
       printErr: (text: string) => {
         if (this.context?.debug) console.error('[Play! Err]', text);
+        this.context?.onLog?.(text, 'error');
       },
     };
 
     try {
       const moduleExport = await import(/* @vite-ignore */ playJsUrl);
       const factory = moduleExport.default || moduleExport.Play || moduleExport;
-      this._playModule = await factory(moduleOverrides);
-    } catch (err) {
-      if (this.context?.debug) {
-        console.warn('[PlayAdapter] Dynamic import of Play.js failed:', err);
+      const mod = await factory(moduleOverrides);
+      try {
+        mod.FS.mkdir('/work');
+      } catch (_) {}
+      mod.discImageDevice = new DiscImageDevice(mod);
+      if (typeof mod.ccall === 'function') {
+        try {
+          mod.ccall('initVm', '', [], []);
+        } catch (_) {}
+      } else if (typeof mod._initVm === 'function') {
+        try {
+          mod._initVm();
+        } catch (_) {}
       }
-      this._playModule = moduleOverrides;
+      this._playModule = mod;
+    } catch (err: any) {
+      const msg = `Failed to load Play! PS2 runtime from "${playJsUrl}": ${err?.message || err}`;
+      console.error('[PlayAdapter]', msg, err);
+      this.context?.onLog?.(msg, 'error');
+      throw new Error(msg);
     }
   }
 }

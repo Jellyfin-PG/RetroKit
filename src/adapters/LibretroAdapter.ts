@@ -22,6 +22,7 @@ export class LibretroAdapter extends BaseCoreBridge {
   private _sramPath = '/home/web_user/retroarch/userdata/saves/rom.srm';
   private _fps = 60;
   private _coreOptionsMap: Record<string, string> = {};
+  private _additionalFiles: Array<{ name: string; data: Uint8Array }> = [];
   private _started = false;
 
   constructor(
@@ -62,10 +63,40 @@ export class LibretroAdapter extends BaseCoreBridge {
       this._romData = new Uint8Array(rom);
     }
 
-    const safeName = options?.fileName || 'rom.bin';
+    let safeName = options?.fileName || 'rom.bin';
+    // When booting PICO-8 carts on retro8, RetroArch's web frontend attempts to intercept
+    // files ending in .png as static images instead of passing them to the core.
+    // Map .p8.png and .png files to .p8 in the virtual filesystem so retro8 receives the content directly.
+    if (
+      (this.id === 'retro8' || this.system === 'pico8') &&
+      safeName.toLowerCase().endsWith('.png')
+    ) {
+      safeName = safeName
+        .replace(/\.p8\.png$/i, '.p8')
+        .replace(/\.png$/i, '.p8');
+    }
+
     this._romPath = `/home/web_user/retroarch/userdata/content/${safeName}`;
     const baseName = safeName.replace(/\.[^.]+$/, '');
     this._sramPath = `/home/web_user/retroarch/userdata/saves/${baseName}.srm`;
+
+    this._additionalFiles = [];
+    if (options?.additionalFiles) {
+      for (const f of options.additionalFiles) {
+        let bytes: Uint8Array;
+        if (f.data instanceof Uint8Array) {
+          bytes = f.data;
+        } else if (f.data instanceof ArrayBuffer) {
+          bytes = new Uint8Array(f.data);
+        } else if (f.data instanceof Blob) {
+          const buf = await f.data.arrayBuffer();
+          bytes = new Uint8Array(buf);
+        } else {
+          bytes = new Uint8Array(f.data);
+        }
+        this._additionalFiles.push({ name: f.name, data: bytes });
+      }
+    }
 
     await this._instantiateCoreModule();
 
@@ -570,48 +601,53 @@ export class LibretroAdapter extends BaseCoreBridge {
     }
   }
 
-  private _dispatchKeyboardFallback(buttonId: number, pressed: boolean): void {
-    const keyMap: Record<
-      number,
-      { key: string; code: string; keyCode: number }
-    > = {
-      4: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
-      5: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
-      6: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
-      7: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
-      0: { key: 'z', code: 'KeyZ', keyCode: 90 }, // B button
-      8: { key: 'x', code: 'KeyX', keyCode: 88 }, // A button
-      1: { key: 'a', code: 'KeyA', keyCode: 65 }, // Y button
-      9: { key: 's', code: 'KeyS', keyCode: 83 }, // X button
-      2: { key: 'Shift', code: 'ShiftRight', keyCode: 16 }, // Select
-      3: { key: 'Enter', code: 'Enter', keyCode: 13 }, // Start
-      10: { key: 'q', code: 'KeyQ', keyCode: 81 }, // L
-      11: { key: 'w', code: 'KeyW', keyCode: 87 }, // R
-      100: { key: 'h', code: 'KeyH', keyCode: 72 }, // Reset
-      101: { key: 'F2', code: 'F2', keyCode: 113 }, // Save State
-      102: { key: 'F4', code: 'F4', keyCode: 115 }, // Load State
-    };
+  private _isDispatchingFallback = false;
 
-    const def = keyMap[buttonId];
-    if (def) {
-      const type = pressed ? 'keydown' : 'keyup';
-      const event = new KeyboardEvent(type, {
-        key: def.key,
-        code: def.code,
-        keyCode: def.keyCode,
-        which: def.keyCode,
-        bubbles: true,
-        cancelable: true,
-      });
-      if (this.context?.canvas) {
-        this.context.canvas.dispatchEvent(event);
+  private _dispatchKeyboardFallback(buttonId: number, pressed: boolean): void {
+    if (this._isDispatchingFallback) return;
+    this._isDispatchingFallback = true;
+
+    try {
+      const keyMap: Record<
+        number,
+        { key: string; code: string; keyCode: number }
+      > = {
+        4: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
+        5: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
+        6: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
+        7: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+        0: { key: 'z', code: 'KeyZ', keyCode: 90 }, // B button
+        8: { key: 'x', code: 'KeyX', keyCode: 88 }, // A button
+        1: { key: 'a', code: 'KeyA', keyCode: 65 }, // Y button
+        9: { key: 's', code: 'KeyS', keyCode: 83 }, // X button
+        2: { key: 'Shift', code: 'ShiftRight', keyCode: 16 }, // Select
+        3: { key: 'Enter', code: 'Enter', keyCode: 13 }, // Start
+        10: { key: 'q', code: 'KeyQ', keyCode: 81 }, // L
+        11: { key: 'w', code: 'KeyW', keyCode: 87 }, // R
+        100: { key: 'h', code: 'KeyH', keyCode: 72 }, // Reset
+        101: { key: 'F2', code: 'F2', keyCode: 113 }, // Save State
+        102: { key: 'F4', code: 'F4', keyCode: 115 }, // Load State
+      };
+
+      const def = keyMap[buttonId];
+      if (def) {
+        const type = pressed ? 'keydown' : 'keyup';
+        const event = new KeyboardEvent(type, {
+          key: def.key,
+          code: def.code,
+          keyCode: def.keyCode,
+          which: def.keyCode,
+          bubbles: false,
+          cancelable: true,
+        });
+        (event as any)._isRetroKitSynthetic = true;
+
+        if (this.context?.canvas) {
+          this.context.canvas.dispatchEvent(event);
+        }
       }
-      if (typeof document !== 'undefined') {
-        document.dispatchEvent(event);
-      }
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(event);
-      }
+    } finally {
+      this._isDispatchingFallback = false;
     }
   }
 
@@ -816,6 +852,20 @@ export class LibretroAdapter extends BaseCoreBridge {
               } catch (e) {
                 console.error(
                   '[LibretroAdapter] Error writing ROM to virtual FS:',
+                  e,
+                );
+              }
+            }
+
+            // Write any companion files (.bin tracks for a .cue, multi-disc files)
+            for (const extra of this._additionalFiles) {
+              try {
+                const extraPath = `/home/web_user/retroarch/userdata/content/${extra.name}`;
+                mod.FS.writeFile(extraPath, extra.data);
+              } catch (e) {
+                console.warn(
+                  '[LibretroAdapter] Error writing companion file:',
+                  extra.name,
                   e,
                 );
               }

@@ -1,5 +1,6 @@
 import type { ICoreAdapter } from './adapters/ICoreAdapter';
 import { LibretroAdapter } from './adapters/LibretroAdapter';
+import { Pico8Adapter } from './adapters/Pico8Adapter';
 import { PlayAdapter } from './adapters/PlayAdapter';
 import { RuffleAdapter } from './adapters/RuffleAdapter';
 import { CoreRegistry } from './core/CoreRegistry';
@@ -181,56 +182,76 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
       }
     }
 
-    // Convert ROM to Uint8Array for hashing and patching
-    let romBytes: Uint8Array;
-    if (typeof rom === 'string') {
-      const resp = await fetch(rom, { headers: this._config.fetchHeaders });
-      const buf = await resp.arrayBuffer();
-      romBytes = new Uint8Array(buf);
-    } else if (rom instanceof Blob) {
-      const buf = await rom.arrayBuffer();
-      romBytes = new Uint8Array(buf);
-    } else if (rom instanceof Uint8Array) {
-      romBytes = rom;
-    } else {
-      romBytes = new Uint8Array(rom);
-    }
+    // Check if the ROM is a large file (e.g. multi-gigabyte PS2 / PS1 disc images).
+    // We avoid loading multi-gigabyte blobs entirely into memory as a Uint8Array,
+    // which would trigger RangeError: Invalid typed array length in V8.
+    const isBlob = rom instanceof Blob;
+    const isLargeMedia = isBlob && rom.size > 150 * 1024 * 1024;
 
-    // Apply ROM Patch (IPS, BPS, UPS) if provided
-    let processedRom: ArrayBuffer | Blob | string | Uint8Array = romBytes;
-    if (options?.patch) {
-      let patchBytes: Uint8Array;
-      if (options.patch instanceof Blob) {
-        const buf = await options.patch.arrayBuffer();
-        patchBytes = new Uint8Array(buf);
-      } else if (options.patch instanceof ArrayBuffer) {
-        patchBytes = new Uint8Array(options.patch);
+    let processedRom: ArrayBuffer | Blob | string | Uint8Array = rom;
+    let romBytes: Uint8Array | null = null;
+
+    if (!isLargeMedia) {
+      if (typeof rom === 'string') {
+        const resp = await fetch(rom, { headers: this._config.fetchHeaders });
+        const buf = await resp.arrayBuffer();
+        romBytes = new Uint8Array(buf);
+      } else if (rom instanceof Blob) {
+        const buf = await rom.arrayBuffer();
+        romBytes = new Uint8Array(buf);
+      } else if (rom instanceof Uint8Array) {
+        romBytes = rom;
       } else {
-        patchBytes = options.patch;
+        romBytes = new Uint8Array(rom);
       }
-
-      const patchResult = RomPatcher.applyPatch(
-        romBytes,
-        patchBytes,
-        options.verifyPatchChecksum,
-      );
-      romBytes = patchResult.patchedRom;
       processedRom = romBytes;
 
-      this.emit('romPatched', {
-        format: patchResult.format,
-        originalSize: romBytes.length,
-        patchedSize: patchResult.patchedRom.length,
-      });
-    }
+      // Apply ROM Patch (IPS, BPS, UPS) if provided
+      if (options?.patch) {
+        let patchBytes: Uint8Array;
+        if (options.patch instanceof Blob) {
+          const buf = await options.patch.arrayBuffer();
+          patchBytes = new Uint8Array(buf);
+        } else if (options.patch instanceof ArrayBuffer) {
+          patchBytes = new Uint8Array(options.patch);
+        } else {
+          patchBytes = options.patch;
+        }
 
-    // Compute game hash and fetch RetroAchievements definitions if logged in
-    const gameHash = this.achievements.computeGameHash(romBytes);
-    this.achievements
-      .loadAchievements(gameHash, options?.fileName)
-      .catch((err) => {
-        console.warn('[RetroKit] RetroAchievements lookup failed:', err);
-      });
+        const patchResult = RomPatcher.applyPatch(
+          romBytes,
+          patchBytes,
+          options.verifyPatchChecksum,
+        );
+        romBytes = patchResult.patchedRom;
+        processedRom = romBytes;
+
+        this.emit('romPatched', {
+          format: patchResult.format,
+          originalSize: romBytes.length,
+          patchedSize: patchResult.patchedRom.length,
+        });
+      }
+
+      // Compute game hash and fetch RetroAchievements definitions if logged in
+      const gameHash = this.achievements.computeGameHash(romBytes);
+      this.achievements
+        .loadAchievements(gameHash, options?.fileName)
+        .catch((err) => {
+          console.warn('[RetroKit] RetroAchievements lookup failed:', err);
+        });
+    } else {
+      // For large disc images, hash the initial sector slice for identifier lookup
+      try {
+        const headerSlice = await (rom as Blob).slice(0, 65536).arrayBuffer();
+        const partialHash = this.achievements.computeGameHash(
+          new Uint8Array(headerSlice),
+        );
+        this.achievements
+          .loadAchievements(partialHash, options?.fileName)
+          .catch(() => {});
+      } catch (_) {}
+    }
 
     // Teardown previous adapter if switching games
     if (this._adapter) {
@@ -413,22 +434,36 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
       if (meta) return meta;
     }
 
-    // Fallback to platform tag resolution
-    if (options?.platformTag) {
-      const cores = CoreRegistry.getCoresForSystem(options.platformTag);
-      if (cores.length > 0) return cores[0];
-    }
+    // Determine target system from options or constructor config
+    const targetSystem =
+      options?.system ||
+      options?.platformTag ||
+      (this._config.system && this._config.system !== 'auto'
+        ? this._config.system
+        : undefined);
 
-    // Deduce from file extension
+    // Deduce from file extension using target system hint if present
     if (options?.fileName) {
-      const meta = CoreRegistry.resolveCoreFromFileName(options.fileName);
+      const meta = CoreRegistry.resolveCoreFromFileName(
+        options.fileName,
+        targetSystem,
+      );
       if (meta) return meta;
     }
 
     if (typeof this._activeRom === 'string') {
       const urlFileName = this._activeRom.split('?')[0].split('/').pop() || '';
-      const meta = CoreRegistry.resolveCoreFromFileName(urlFileName);
+      const meta = CoreRegistry.resolveCoreFromFileName(
+        urlFileName,
+        targetSystem,
+      );
       if (meta) return meta;
+    }
+
+    // Fallback to platform / system tag resolution
+    if (targetSystem) {
+      const cores = CoreRegistry.getCoresForSystem(targetSystem);
+      if (cores.length > 0) return cores[0];
     }
 
     return undefined;
@@ -445,6 +480,8 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
         return new PlayAdapter();
       case 'ruffle':
         return new RuffleAdapter();
+      case 'pico8':
+        return new Pico8Adapter();
       default:
         return new LibretroAdapter(
           meta.id,

@@ -37,6 +37,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/libretro-cores/, ''),
       },
+      '/play-cores': {
+        target: 'https://playjs.purei.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/play-cores/, ''),
+      },
       '/ra-api': {
         target: 'https://retroachievements.org',
         changeOrigin: true,

@@ -29,8 +29,9 @@ function log(msg: string) {
 const emu = new RetroKit({
   canvas,
   assetBaseUrl: assetUrlInput?.value || '/libretro-cores',
-  debug: false,
+  debug: true,
 });
+(window as any).emu = emu;
 
 assetUrlInput?.addEventListener('input', () => {
   if (assetUrlInput.value) {
@@ -400,13 +401,52 @@ document.getElementById('bios-input')?.addEventListener('change', async (e) => {
 
 document.getElementById('file-input')?.addEventListener('change', async (e) => {
   const target = e.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (!file) return;
+  const files = target.files;
+  if (!files || files.length === 0) return;
 
-  log(`Loading file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)...`);
+  const systemSelect = document.getElementById(
+    'system-select',
+  ) as HTMLSelectElement;
+  const selectedSystem =
+    systemSelect?.value && systemSelect.value !== 'auto'
+      ? systemSelect.value
+      : undefined;
+
+  let primaryFile: File = files[0];
+  const additionalFiles: Array<{ name: string; data: File }> = [];
+
+  if (files.length > 1) {
+    // If multiple files selected, find the cue / m3u descriptor as primary boot file
+    const fileList = Array.from(files);
+    const cueMatch = fileList.find(
+      (f) =>
+        f.name.toLowerCase().endsWith('.cue') ||
+        f.name.toLowerCase().endsWith('.m3u'),
+    );
+    if (cueMatch) {
+      primaryFile = cueMatch;
+    }
+    for (const f of fileList) {
+      if (f !== primaryFile) {
+        additionalFiles.push({ name: f.name, data: f });
+      }
+    }
+    log(
+      `Loading multi-file set: "${primaryFile.name}" with ${additionalFiles.length} companion file(s) (${additionalFiles.map((a) => a.name).join(', ')})...`,
+    );
+  } else {
+    log(
+      `Loading file: ${primaryFile.name} (${(primaryFile.size / 1024).toFixed(1)} KB)${
+        selectedSystem ? ` [System: ${selectedSystem}]` : ''
+      }...`,
+    );
+  }
+
   try {
-    await emu.load(file, {
-      fileName: file.name,
+    await emu.load(primaryFile, {
+      fileName: primaryFile.name,
+      system: selectedSystem,
+      additionalFiles: additionalFiles.length > 0 ? additionalFiles : undefined,
       patch: activePatchFile || undefined,
     });
     emu.play();

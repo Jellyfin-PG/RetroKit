@@ -145,6 +145,8 @@ export class InputManager implements IInputManager {
   }
 
   private _handleKeyDown(e: KeyboardEvent): void {
+    if ((e as any)._isRetroKitSynthetic) return;
+
     // Check global hotkeys
     const hotkey = this._hotkeys.get(e.code) || this._hotkeys.get(e.key);
     if (hotkey) {
@@ -164,6 +166,8 @@ export class InputManager implements IInputManager {
   }
 
   private _handleKeyUp(e: KeyboardEvent): void {
+    if ((e as any)._isRetroKitSynthetic) return;
+
     const handled = this._players[0].handleKeyEvent(e.code, false);
     if (handled) {
       e.preventDefault();

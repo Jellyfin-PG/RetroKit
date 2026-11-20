@@ -40,7 +40,7 @@ export interface CoreMetadata {
   id: string;
   name: string;
   system: string;
-  family: 'libretro' | 'play' | 'ruffle';
+  family: 'libretro' | 'play' | 'ruffle' | 'pico8';
   extensions: string[];
   capabilities: CoreCapabilities;
   needsThreads?: boolean;
@@ -57,6 +57,9 @@ export interface RetroKitConfig {
 
   /** Core ID or 'auto' to detect by ROM file extension. */
   core?: string;
+
+  /** Target platform/system identifier (e.g. 'ps1', 'psx', 'ps2', 'snes', 'genesis'). */
+  system?: string;
 
   /** Base URL for loading core WASM/JS binaries and data assets. */
   assetBaseUrl?: string;
@@ -82,6 +85,11 @@ export interface RetroKitConfig {
 /** Legacy alias for RetroKitConfig */
 export type EmuHeadlessConfig = RetroKitConfig;
 
+export interface CompanionFile {
+  name: string;
+  data: Uint8Array | ArrayBuffer | Blob;
+}
+
 /**
  * Options provided when loading a game.
  */
@@ -89,11 +97,17 @@ export interface GameLoadOptions {
   /** Explicit core ID to use instead of auto-detection. */
   core?: string;
 
+  /** System identifier (e.g. 'ps1', 'psx', 'ps2', 'snes', 'nes', 'genesis', 'n64'). Disambiguates shared extensions like .chd, .bin, and .iso. */
+  system?: string;
+
   /** Platform or console tag (e.g. 'snes', 'ps2', 'pico8'). */
   platformTag?: string;
 
   /** Filename with extension (crucial when passing ArrayBuffer / Blob). */
   fileName?: string;
+
+  /** Additional companion files (e.g. .bin tracks accompanying a .cue file, or multi-disc sets). */
+  additionalFiles?: CompanionFile[];
 
   /** Unique game ID used for state and SRAM scoping. */
   gameId?: string;

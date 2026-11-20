@@ -4,6 +4,7 @@ export { BaseCoreBridge } from './adapters/BaseCoreBridge';
 // Adapters & Virtual Bridge
 export type { AdapterContext, ICoreAdapter } from './adapters/ICoreAdapter';
 export { LibretroAdapter } from './adapters/LibretroAdapter';
+export { Pico8Adapter } from './adapters/Pico8Adapter';
 export { PlayAdapter } from './adapters/PlayAdapter';
 export { RuffleAdapter } from './adapters/RuffleAdapter';
 export { CoreRegistry } from './core/CoreRegistry';

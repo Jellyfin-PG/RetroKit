@@ -294,10 +294,47 @@
     <aside id="sidebar">
       <div class="panel">
         <div class="panel-title">Game Loader</div>
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">Target System / Platform:</div>
+        <select id="system-select" style="width: 100%; background: #0f172a; border: 1px solid #475569; color: #f8fafc; padding: 6px 8px; border-radius: 6px; font-size: 12px; margin-bottom: 10px;">
+          <option value="auto">Auto-detect (Smart Disambiguation)</option>
+          <option value="psx">Sony PlayStation 1 (PS1 / PSX)</option>
+          <option value="ps2">Sony PlayStation 2 (PS2)</option>
+          <option value="snes">Super Nintendo (SNES)</option>
+          <option value="nes">Nintendo Entertainment System (NES)</option>
+          <option value="gba">Game Boy Advance (GBA)</option>
+          <option value="gb">Game Boy / Game Boy Color</option>
+          <option value="n64">Nintendo 64 (N64)</option>
+          <option value="virtualboy">Nintendo Virtual Boy</option>
+          <option value="genesis">Sega Genesis / Mega Drive / 32X / CD</option>
+          <option value="mastersystem">Sega Master System / Game Gear</option>
+          <option value="arcade">Arcade (FBNeo / MAME)</option>
+          <option value="atari2600">Atari 2600</option>
+          <option value="lynx">Atari Lynx</option>
+          <option value="pce">NEC PC Engine / TurboGrafx-16 / SuperGrafx</option>
+          <option value="ngp">SNK Neo Geo Pocket / Color</option>
+          <option value="neocd">SNK Neo Geo CD</option>
+          <option value="wswan">Bandai WonderSwan / Color</option>
+          <option value="c64">Commodore 64 / 128 / VIC-20</option>
+          <option value="colecovision">ColecoVision</option>
+          <option value="vectrex">Vectrex</option>
+          <option value="3do">Panasonic / 3DO</option>
+          <option value="pico8">PICO-8</option>
+          <option value="tic80">TIC-80</option>
+          <option value="wasm4">WASM-4</option>
+          <option value="arduboy">Arduboy</option>
+          <option value="chip8">CHIP-8</option>
+          <option value="doom">Doom (PrBoom)</option>
+          <option value="quake">Quake (TyrQuake)</option>
+          <option value="quake2">Quake II (vitaQuake 2)</option>
+          <option value="ecwolf">Wolfenstein 3D (ECWolf)</option>
+          <option value="scummvm">ScummVM</option>
+          <option value="cavestory">Cave Story (NXEngine)</option>
+          <option value="flash">Adobe Flash (SWF)</option>
+        </select>
         <div class="btn-group">
-          <label class="btn-file primary">
-            Open ROM / SWF File
-            <input type="file" id="file-input" style="display:none;" />
+          <label class="btn-file primary" style="width: 100%; justify-content: center;">
+            Open ROM / Disc (Multi-file .cue + .bin)
+            <input type="file" id="file-input" multiple style="display:none;" />
           </label>
         </div>
       </div>
