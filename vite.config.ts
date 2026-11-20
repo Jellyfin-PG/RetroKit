@@ -29,23 +29,33 @@ export default defineConfig({
   server: {
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'credentialless',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Resource-Policy': 'cross-origin',
     },
     proxy: {
       '/libretro-cores': {
         target: 'https://web.libretro.com',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/libretro-cores/, ''),
+        headers: {
+          'Cross-Origin-Resource-Policy': 'cross-origin',
+        },
       },
       '/emulatorjs-cores': {
         target: 'https://cdn.emulatorjs.org',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/emulatorjs-cores/, ''),
+        headers: {
+          'Cross-Origin-Resource-Policy': 'cross-origin',
+        },
       },
       '/play-cores': {
         target: 'https://playjs.purei.org',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/play-cores/, ''),
+        headers: {
+          'Cross-Origin-Resource-Policy': 'cross-origin',
+        },
       },
       '/ra-api': {
         target: 'https://retroachievements.org',

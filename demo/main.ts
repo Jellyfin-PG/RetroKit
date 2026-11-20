@@ -550,17 +550,32 @@ document.getElementById('btn-load-psp')?.addEventListener('click', async () => {
 });
 
 document.getElementById('btn-load-3ds')?.addEventListener('click', async () => {
-  log('Fetching test 3DS cart: /test_carts/3ds_fbi.cia...');
+  log('Fetching test 3DS cart: /test_carts/boot.3dsx...');
   try {
-    const res = await fetch('/test_carts/3ds_fbi.cia');
+    const res = await fetch('/test_carts/boot.3dsx');
     const buf = await res.arrayBuffer();
     await emu.load(buf, {
-      fileName: 'FBI.cia',
+      fileName: 'boot.3dsx',
       system: '3ds',
     });
     emu.play();
   } catch (err: any) {
     log(`3DS load error: ${err.message}`);
+  }
+});
+
+document.getElementById('btn-load-nds')?.addEventListener('click', async () => {
+  log('Fetching test NDS cart: /test_carts/nesds.nds...');
+  try {
+    const res = await fetch('/test_carts/nesds.nds');
+    const buf = await res.arrayBuffer();
+    await emu.load(buf, {
+      fileName: 'nesds.nds',
+      system: 'nds',
+    });
+    emu.play();
+  } catch (err: any) {
+    log(`NDS load error: ${err.message}`);
   }
 });
 

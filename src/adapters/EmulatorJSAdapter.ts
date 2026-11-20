@@ -38,6 +38,22 @@ const CORE_CONFIGS: Record<string, CorePackageConfig> = {
     needsWebGL2: true,
     needsThreads: true,
   },
+  desmume: {
+    channel: 'stable',
+    bundleName: 'desmume-wasm.data',
+    jsName: 'desmume_libretro.js',
+    wasmName: 'desmume_libretro.wasm',
+    needsWebGL2: true,
+    needsThreads: false,
+  },
+  melonds: {
+    channel: 'stable',
+    bundleName: 'melonds-wasm.data',
+    jsName: 'melonds_libretro.js',
+    wasmName: 'melonds_libretro.wasm',
+    needsWebGL2: true,
+    needsThreads: false,
+  },
 };
 
 /**
@@ -150,13 +166,9 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
       this._started = true;
       if (typeof this._module.callMain === 'function') {
         try {
-          const cfgPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
-          const args = this._module.arguments || [
-            '-v',
-            '-c',
-            cfgPath,
-            this._romPath,
-          ];
+          const safeName = this._romPath.split('/').pop() || 'rom.bin';
+          const isDebug = !!this.context?.debug;
+          const args = isDebug ? ['-v', `/${safeName}`] : [`/${safeName}`];
           this._module.callMain(args);
           if (typeof this._module.resumeMainLoop === 'function') {
             this._module.resumeMainLoop();
@@ -224,6 +236,11 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
       if (typeof this._module.pauseMainLoop === 'function') {
         try {
           this._module.pauseMainLoop();
+        } catch (_) {}
+      }
+      if (this._module.PThread?.terminateAllThreads) {
+        try {
+          this._module.PThread.terminateAllThreads();
         } catch (_) {}
       }
       if (typeof this._module.abort === 'function') {
@@ -700,6 +717,20 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
       'info',
     );
 
+    if (cfg.needsThreads && typeof SharedArrayBuffer === 'undefined') {
+      const msg = `[EmulatorJSAdapter] Core "${this.id}" requires multi-threading (SharedArrayBuffer), but cross-origin isolation is not active. Ensure COOP: same-origin and COEP: require-corp headers are served.`;
+      console.warn(msg);
+      this.context?.onLog?.(msg, 'error');
+    }
+
+    if (this._scriptElement?.parentNode) {
+      this._scriptElement.parentNode.removeChild(this._scriptElement);
+      this._scriptElement = null;
+    }
+    const win =
+      typeof window !== 'undefined' ? (window as any) : (globalThis as any);
+    delete win.EJS_Runtime;
+
     // Retrieve core binaries (from memory cache or network)
     const { jsBytes, wasmBytes } = await this._acquireCoreBinaries(cfg);
 
@@ -726,9 +757,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
 
     const isDebug = !!this.context?.debug;
     const cfgPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
-    const coreArgs = isDebug
-      ? ['-v', '-c', cfgPath, this._romPath]
-      : ['-c', cfgPath, this._romPath];
+    const altCfgPath = '/home/web_user/.config/retroarch/retroarch.cfg';
 
     const moduleOverrides: any = {
       canvas: this.context?.canvas,
@@ -738,19 +767,24 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
         powerPreference: 'high-performance',
       },
       noInitialRun: true,
-      arguments: coreArgs,
+      arguments: [],
       mainScriptUrlOrBlob: jsBlobUrl,
       locateFile: (path: string) => {
         if (path.endsWith('.wasm')) {
           return wasmBlobUrl;
         }
-        return path;
+        return undefined;
+      },
+      callbacks: {
+        setupCoreSettingFile: () => {},
       },
       preRun: [
         (mod: any) => {
           if (mod.FS) {
             this._ensureDirectories(mod.FS, '/home');
             this._ensureDirectories(mod.FS, '/home/web_user');
+            this._ensureDirectories(mod.FS, '/home/web_user/.config');
+            this._ensureDirectories(mod.FS, '/home/web_user/.config/retroarch');
             this._ensureDirectories(mod.FS, '/home/web_user/retroarch');
             this._ensureDirectories(mod.FS, '/home/web_user/retroarch/cores');
             this._ensureDirectories(
@@ -806,6 +840,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
 
             try {
               mod.FS.writeFile(cfgPath, minimalCfg);
+              mod.FS.writeFile(altCfgPath, minimalCfg);
             } catch (_) {}
 
             // Write ROM into both content directory and root path
@@ -1067,6 +1102,14 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
    */
   private _loadScriptTag(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this._scriptElement?.parentNode) {
+        this._scriptElement.parentNode.removeChild(this._scriptElement);
+        this._scriptElement = null;
+      }
+      const win =
+        typeof window !== 'undefined' ? (window as any) : (globalThis as any);
+      delete win.EJS_Runtime;
+
       const script = document.createElement('script');
       script.src = url;
       script.async = true;
