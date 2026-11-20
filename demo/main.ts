@@ -613,6 +613,23 @@ document
     }
   });
 
+document
+  .getElementById('btn-load-little-bookbinder')
+  ?.addEventListener('click', async () => {
+    log('Fetching test LÖVE cart: /test_carts/little-bookbinder.love...');
+    try {
+      const res = await fetch('/test_carts/little-bookbinder.love');
+      const buf = await res.arrayBuffer();
+      await emu.load(buf, {
+        fileName: 'little-bookbinder.love',
+        system: 'love',
+      });
+      emu.play();
+    } catch (err: any) {
+      log(`Little Bookbinder load error: ${err.message}`);
+    }
+  });
+
 document.getElementById('btn-play')?.addEventListener('click', async () => {
   await emu.play();
   log('Playback resumed.');
@@ -677,6 +694,97 @@ document
   ?.addEventListener('click', async () => {
     await emu.sram.flushSram();
     log('Flushed battery SRAM.');
+  });
+
+document
+  .getElementById('btn-download-sram')
+  ?.addEventListener('click', async () => {
+    if (!emu.capabilities.sram) {
+      log('SRAM not supported by active core.');
+      return;
+    }
+    await emu.sram.flushSram();
+    const data = await emu.sram.getSram();
+    if (!data) {
+      log('No SRAM data found for active game yet.');
+      return;
+    }
+
+    if (data instanceof Uint8Array) {
+      const isPico8 = emu.currentCore?.system === 'pico8';
+      const ext = isPico8 ? 'pdat' : 'srm';
+      const blob = new Blob([data], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `savegame.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      log(`Exported SRAM (${data.byteLength} bytes) to savegame.${ext}`);
+    } else {
+      const serialized: Record<string, string> = {};
+      for (const [key, val] of Object.entries(data)) {
+        let binary = '';
+        for (let i = 0; i < val.byteLength; i++) {
+          binary += String.fromCharCode(val[i]);
+        }
+        serialized[key] = btoa(binary);
+      }
+      const jsonStr = JSON.stringify(serialized, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'savegame.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      log(
+        `Exported multi-file SRAM (${Object.keys(data).length} files) to savegame.json`,
+      );
+    }
+  });
+
+document
+  .getElementById('sram-file-input')
+  ?.addEventListener('change', async (e) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    try {
+      if (file.name.endsWith('.json')) {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        const record: Record<string, Uint8Array> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          const binary = atob(v as string);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+          }
+          record[k] = bytes;
+        }
+        const ok = await emu.sram.setSram(record, { restart: true });
+        log(
+          ok
+            ? `Imported multi-file SRAM from ${file.name} and restarted game.`
+            : `Failed importing SRAM from ${file.name}.`,
+        );
+      } else {
+        const buffer = await file.arrayBuffer();
+        const data = new Uint8Array(buffer);
+        const ok = await emu.sram.setSram(data, { restart: true });
+        log(
+          ok
+            ? `Imported ${data.byteLength} bytes SRAM from ${file.name} and restarted game.`
+            : `Failed importing SRAM from ${file.name}.`,
+        );
+      }
+    } catch (err: any) {
+      log(`Error importing SRAM: ${err?.message || err}`);
+    } finally {
+      input.value = '';
+    }
   });
 
 // Virtual Controller Input Injection Buttons

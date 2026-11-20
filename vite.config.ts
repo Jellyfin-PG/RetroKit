@@ -27,6 +27,16 @@ export default defineConfig({
     minify: 'esbuild',
   },
   server: {
+    watch: {
+      ignored: [
+        '**/Little-Bookbinder/**',
+        '**/*.love',
+        '**/*.zip',
+        '**/*.7z',
+        '**/*.iso',
+        '**/*.cso',
+      ],
+    },
     headers: {
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Embedder-Policy': 'require-corp',

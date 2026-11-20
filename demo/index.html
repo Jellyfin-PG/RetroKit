@@ -348,6 +348,7 @@
           <button id="btn-load-3ds" style="flex: 1; font-size: 11px;">Load 3DS Test</button>
           <button id="btn-load-nds" style="flex: 1; font-size: 11px;">Load NDS Test</button>
           <button id="btn-load-love" style="flex: 1; font-size: 11px;">Load LÖVE Test</button>
+          <button id="btn-load-little-bookbinder" style="flex: 1; font-size: 11px; background: #065f46;">Load Little Bookbinder (.love)</button>
         </div>
       </div>
 
@@ -375,6 +376,11 @@
           <button id="btn-save-state">Save State (Slot 0)</button>
           <button id="btn-load-state">Load State (Slot 0)</button>
           <button id="btn-flush-sram">Flush Battery SRAM</button>
+          <button id="btn-download-sram">Export SRAM (.srm / .pdat)</button>
+          <label class="btn-file" style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center; background: #334155; color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: 500;">
+            Import SRAM
+            <input type="file" id="sram-file-input" style="display: none;" />
+          </label>
         </div>
       </div>
 

@@ -55,6 +55,7 @@ export class Pico8Adapter extends BaseCoreBridge {
   private _scriptElement: HTMLScriptElement | null = null;
   private _textareaElement: HTMLTextAreaElement | null = null;
   private _createdBlobUrls: string[] = [];
+  private _currentCartName = 'cart.p8.png';
   private _lastFrameNumber = 0;
   private _lastFpsCalcTime = 0;
   private _currentFps = 0;
@@ -75,6 +76,7 @@ export class Pico8Adapter extends BaseCoreBridge {
     options?: GameLoadOptions,
   ): Promise<void> {
     const fileName = options?.fileName || 'cart.p8.png';
+    this._currentCartName = fileName;
     const isPng =
       fileName.toLowerCase().endsWith('.png') ||
       (rom instanceof Uint8Array && this._isPngSignature(rom));
@@ -249,10 +251,9 @@ export class Pico8Adapter extends BaseCoreBridge {
     return Math.max(0, Math.round(this._currentFps));
   }
 
-  public override async rawGetSram(): Promise<Record<
-    string,
-    Uint8Array
-  > | null> {
+  public override async rawGetSram(): Promise<
+    Uint8Array | Record<string, Uint8Array> | null
+  > {
     const win = this._getGlobalWindow();
     if (!win.Module?.FS) return null;
 
@@ -269,14 +270,19 @@ export class Pico8Adapter extends BaseCoreBridge {
             const fullPath = `${dir}/${file}`;
             try {
               const data = fs.readFile(fullPath);
-              result[`${dir}/${file}`] = new Uint8Array(data);
+              result[fullPath] = new Uint8Array(data);
             } catch (_) {}
           }
         }
       } catch (_) {}
     }
 
-    return Object.keys(result).length > 0 ? result : null;
+    const keys = Object.keys(result);
+    if (keys.length === 0) return null;
+    if (keys.length === 1) {
+      return result[keys[0]];
+    }
+    return result;
   }
 
   public override async rawSetSram(
@@ -284,9 +290,43 @@ export class Pico8Adapter extends BaseCoreBridge {
   ): Promise<boolean> {
     const win = this._getGlobalWindow();
     if (!win.Module?.FS) return false;
-    if (data instanceof Uint8Array) return false;
 
     const fs = win.Module.FS;
+
+    if (data instanceof Uint8Array) {
+      let targetPath: string | null = null;
+      try {
+        if (fs.analyzePath('/user_data/cdata').exists) {
+          const files: string[] = fs.readdir('/user_data/cdata');
+          for (const file of files) {
+            if (file.endsWith('.pdat')) {
+              targetPath = `/user_data/cdata/${file}`;
+              break;
+            }
+          }
+        }
+      } catch (_) {}
+
+      if (!targetPath) {
+        const base =
+          this._currentCartName
+            .replace(/\.(p8\.png|p8|png)$/i, '')
+            .split('/')
+            .pop() || 'cart';
+        targetPath = `/user_data/cdata/${base}.pdat`;
+      }
+
+      try {
+        this._ensureDirectoryExists(fs, '/user_data/cdata');
+        fs.writeFile(targetPath, data);
+        await this.rawFlushSram();
+        return true;
+      } catch (err) {
+        console.error('[Pico8Adapter] Failed writing SRAM buffer:', err);
+        return false;
+      }
+    }
+
     for (const [filePath, content] of Object.entries(data)) {
       try {
         const lastSlash = filePath.lastIndexOf('/');
@@ -295,10 +335,45 @@ export class Pico8Adapter extends BaseCoreBridge {
           this._ensureDirectoryExists(fs, dir);
         }
         fs.writeFile(filePath, content);
-      } catch (_) {}
+      } catch (err) {
+        console.error(
+          `[Pico8Adapter] Failed writing SRAM file ${filePath}:`,
+          err,
+        );
+      }
     }
 
+    await this.rawFlushSram();
     return true;
+  }
+
+  public override async rawFlushSram(): Promise<void> {
+    const win = this._getGlobalWindow();
+    const fs = win.Module?.FS;
+    if (!fs || typeof fs.syncfs !== 'function') return;
+
+    await new Promise<void>((resolve) => {
+      try {
+        fs.syncfs(false, (err: any) => {
+          if (err) {
+            console.warn('[Pico8Adapter] FS.syncfs failed:', err);
+          }
+          resolve();
+        });
+      } catch (err) {
+        console.warn('[Pico8Adapter] FS.syncfs exception:', err);
+        resolve();
+      }
+    });
+  }
+
+  public override getSramPath(): string {
+    const base =
+      this._currentCartName
+        .replace(/\.(p8\.png|p8|png)$/i, '')
+        .split('/')
+        .pop() || 'cart';
+    return `/user_data/cdata/${base}.pdat`;
   }
 
   public override rawGetOptions(): CoreOptionDefinition[] {
