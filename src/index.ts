@@ -1,6 +1,7 @@
 // Master Engine
 
 export { BaseCoreBridge } from './adapters/BaseCoreBridge';
+export { EmulatorJSAdapter } from './adapters/EmulatorJSAdapter';
 // Adapters & Virtual Bridge
 export type { AdapterContext, ICoreAdapter } from './adapters/ICoreAdapter';
 export { LibretroAdapter } from './adapters/LibretroAdapter';
@@ -37,6 +38,7 @@ export type { ITimingManager } from './subsystems/TimingManager';
 export { TimingManager } from './subsystems/TimingManager';
 export type { IVideoManager } from './subsystems/VideoManager';
 export { VideoManager } from './subsystems/VideoManager';
+export { ArchiveExtractor } from './utils/ArchiveExtractor';
 export { crc32 } from './utils/crc32';
 export type { EventListener } from './utils/EventEmitter';
 // Utilities

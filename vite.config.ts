@@ -37,6 +37,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/libretro-cores/, ''),
       },
+      '/emulatorjs-cores': {
+        target: 'https://cdn.emulatorjs.org',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/emulatorjs-cores/, ''),
+      },
       '/play-cores': {
         target: 'https://playjs.purei.org',
         changeOrigin: true,

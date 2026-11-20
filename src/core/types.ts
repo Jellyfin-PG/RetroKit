@@ -40,10 +40,11 @@ export interface CoreMetadata {
   id: string;
   name: string;
   system: string;
-  family: 'libretro' | 'play' | 'ruffle' | 'pico8';
+  family: 'libretro' | 'play' | 'ruffle' | 'pico8' | 'emulatorjs';
   extensions: string[];
   capabilities: CoreCapabilities;
   needsThreads?: boolean;
+  needsWebGL2?: boolean;
   assetFile?: string;
   wasmFile?: string;
 }

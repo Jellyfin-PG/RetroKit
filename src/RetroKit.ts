@@ -1,3 +1,4 @@
+import { EmulatorJSAdapter } from './adapters/EmulatorJSAdapter';
 import type { ICoreAdapter } from './adapters/ICoreAdapter';
 import { LibretroAdapter } from './adapters/LibretroAdapter';
 import { Pico8Adapter } from './adapters/Pico8Adapter';
@@ -482,6 +483,13 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
         return new RuffleAdapter();
       case 'pico8':
         return new Pico8Adapter();
+      case 'emulatorjs':
+        return new EmulatorJSAdapter(
+          meta.id,
+          meta.name,
+          meta.system,
+          meta.capabilities,
+        );
       default:
         return new LibretroAdapter(
           meta.id,

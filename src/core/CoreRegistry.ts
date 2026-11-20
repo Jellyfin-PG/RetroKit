@@ -36,6 +36,50 @@ export class CoreRegistry {
     });
 
     this.registerCore({
+      id: 'ppsspp',
+      name: 'Sony PlayStation Portable (PPSSPP)',
+      system: 'psp',
+      family: 'emulatorjs',
+      extensions: ['iso', 'cso', 'pbp', 'elf', 'prx'],
+      needsThreads: true,
+      needsWebGL2: true,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: true,
+        coreOptions: true,
+        multiDisc: true,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 1,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'azahar',
+      name: 'Nintendo 3DS (Azahar / Citra)',
+      system: '3ds',
+      family: 'emulatorjs',
+      extensions: ['3ds', 'cci', 'cxi', 'elf', 'axf', 'app', 'cia'],
+      needsThreads: true,
+      needsWebGL2: true,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 1,
+        pointer: true,
+      },
+    });
+
+    this.registerCore({
       id: 'ruffle',
       name: 'Adobe Flash (Ruffle)',
       system: 'flash',
@@ -2048,6 +2092,15 @@ export class CoreRegistry {
       case 'pico8':
       case 'pico-8':
         return 'pico8';
+      case 'psp':
+      case 'playstationportable':
+      case 'playstation-portable':
+      case 'sony-psp':
+        return 'psp';
+      case '3ds':
+      case 'nintendo-3ds':
+      case 'n3ds':
+        return '3ds';
       case 'tic80':
       case 'tic-80':
         return 'tic80';
@@ -2113,6 +2166,12 @@ export class CoreRegistry {
     if (ext === 'chd' || ext === 'cue' || ext === 'pbp') {
       const psxCore = this.getCore('pcsx_rearmed');
       if (psxCore) return psxCore;
+    }
+
+    // CSO was created specifically for the PSP ecosystem
+    if (ext === 'cso') {
+      const pspCore = this.getCore('ppsspp');
+      if (pspCore) return pspCore;
     }
 
     if (compound) {

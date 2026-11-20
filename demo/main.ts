@@ -455,6 +455,36 @@ document.getElementById('file-input')?.addEventListener('change', async (e) => {
   }
 });
 
+document.getElementById('btn-load-psp')?.addEventListener('click', async () => {
+  log('Fetching test PSP cart: /test_carts/psp_hello_world.pbp...');
+  try {
+    const res = await fetch('/test_carts/psp_hello_world.pbp');
+    const buf = await res.arrayBuffer();
+    await emu.load(buf, {
+      fileName: 'EBOOT.PBP',
+      system: 'psp',
+    });
+    emu.play();
+  } catch (err: any) {
+    log(`PSP load error: ${err.message}`);
+  }
+});
+
+document.getElementById('btn-load-3ds')?.addEventListener('click', async () => {
+  log('Fetching test 3DS cart: /test_carts/3ds_fbi.cia...');
+  try {
+    const res = await fetch('/test_carts/3ds_fbi.cia');
+    const buf = await res.arrayBuffer();
+    await emu.load(buf, {
+      fileName: 'FBI.cia',
+      system: '3ds',
+    });
+    emu.play();
+  } catch (err: any) {
+    log(`3DS load error: ${err.message}`);
+  }
+});
+
 document.getElementById('btn-play')?.addEventListener('click', async () => {
   await emu.play();
   log('Playback resumed.');
