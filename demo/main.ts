@@ -517,6 +517,23 @@ if (viewportContainer) {
   });
 }
 
+document
+  .getElementById('btn-load-pico8')
+  ?.addEventListener('click', async () => {
+    log('Fetching test PICO-8 cart: /test_carts/celeste.p8.png...');
+    try {
+      const res = await fetch('/test_carts/celeste.p8.png');
+      const buf = await res.arrayBuffer();
+      await emu.load(buf, {
+        fileName: 'celeste.p8.png',
+        system: 'pico8',
+      });
+      emu.play();
+    } catch (err: any) {
+      log(`PICO-8 load error: ${err.message}`);
+    }
+  });
+
 document.getElementById('btn-load-psp')?.addEventListener('click', async () => {
   log('Fetching test PSP cart: /test_carts/psp_hello_world.pbp...');
   try {

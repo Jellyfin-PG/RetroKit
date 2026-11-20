@@ -65,14 +65,14 @@ export class Pico8Adapter extends BaseCoreBridge {
     options?: GameLoadOptions,
   ): Promise<void> {
     const fileName = options?.fileName || 'cart.p8.png';
-    const normalizedCartName = fileName.toLowerCase().endsWith('.png')
-      ? fileName
-      : `${fileName}.png`;
+    const isPng = fileName.toLowerCase().endsWith('.png');
+    const isP8 = fileName.toLowerCase().endsWith('.p8');
+    const normalizedCartName = isPng || isP8 ? fileName : `${fileName}.p8.png`;
     const dataUrl = await this._convertToDataUrl(rom, fileName);
 
-    await this._instantiatePico8Runtime();
+    await this._instantiatePico8Runtime(dataUrl, normalizedCartName);
 
-    const win = window as any;
+    const win = this._getGlobalWindow();
     win.p8_dropped_cart = dataUrl;
     win.p8_dropped_cart_name = normalizedCartName;
     win.codo_command = 9;
@@ -81,11 +81,9 @@ export class Pico8Adapter extends BaseCoreBridge {
     await new Promise<void>((resolve) => {
       const interval = setInterval(() => {
         attempts++;
-        if (win.codo_command === 0 || attempts > 40) {
+        if (win.codo_command === 0 || attempts > 20) {
           clearInterval(interval);
           resolve();
-        } else {
-          win.codo_command = 9;
         }
       }, 50);
     });
@@ -95,7 +93,7 @@ export class Pico8Adapter extends BaseCoreBridge {
 
   public override start(): void {
     super.start();
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (win.Module?.pico8SetPaused) {
       try {
         win.Module.pico8SetPaused(false);
@@ -108,7 +106,7 @@ export class Pico8Adapter extends BaseCoreBridge {
 
   public override pause(): void {
     super.pause();
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (win.Module?.pico8SetPaused) {
       try {
         win.Module.pico8SetPaused(true);
@@ -121,7 +119,7 @@ export class Pico8Adapter extends BaseCoreBridge {
 
   public override resume(): void {
     super.resume();
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (win.Module?.pico8SetPaused) {
       try {
         win.Module.pico8SetPaused(false);
@@ -138,7 +136,7 @@ export class Pico8Adapter extends BaseCoreBridge {
   }
 
   public override async restart(): Promise<void> {
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (win.Module?.pico8Reset) {
       try {
         win.Module.pico8Reset();
@@ -168,7 +166,7 @@ export class Pico8Adapter extends BaseCoreBridge {
     if (!mask) return;
 
     this._ensureGlobalButtons();
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (pressed) {
       win.pico8_buttons[player] |= mask;
     } else {
@@ -204,7 +202,7 @@ export class Pico8Adapter extends BaseCoreBridge {
   }
 
   public override rawGetFps(): number {
-    const win = window as any;
+    const win = this._getGlobalWindow();
     const currentFrame = win.pico8_state?.frame_number || 0;
     const now = performance.now();
     const deltaMs = now - this._lastFpsCalcTime;
@@ -223,7 +221,7 @@ export class Pico8Adapter extends BaseCoreBridge {
     string,
     Uint8Array
   > | null> {
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (!win.Module?.FS) return null;
 
     const fs = win.Module.FS;
@@ -252,7 +250,7 @@ export class Pico8Adapter extends BaseCoreBridge {
   public override async rawSetSram(
     data: Uint8Array | Record<string, Uint8Array>,
   ): Promise<boolean> {
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (!win.Module?.FS) return false;
     if (data instanceof Uint8Array) return false;
 
@@ -275,8 +273,14 @@ export class Pico8Adapter extends BaseCoreBridge {
     return [];
   }
 
+  private _getGlobalWindow(): any {
+    return typeof window !== 'undefined'
+      ? (window as any)
+      : (globalThis as any);
+  }
+
   private _ensureGlobalButtons(): void {
-    const win = window as any;
+    const win = this._getGlobalWindow();
     if (!win.pico8_buttons || !Array.isArray(win.pico8_buttons)) {
       win.pico8_buttons = [0, 0, 0, 0, 0, 0, 0, 0];
     }
@@ -303,11 +307,16 @@ export class Pico8Adapter extends BaseCoreBridge {
     fileName: string,
   ): Promise<string> {
     const isPng = fileName.toLowerCase().endsWith('.png');
-    const mimeType = isPng ? 'image/png' : 'application/pkcs8';
+    const mimeType = isPng ? 'image/png' : 'application/octet-stream';
 
     if (typeof rom === 'string') {
       if (rom.startsWith('data:')) {
         return rom;
+      }
+      if (rom.includes('pico-8 cartridge')) {
+        return this._blobToDataUrl(
+          new Blob([rom], { type: 'text/plain;charset=utf-8' }),
+        );
       }
       const resp = await fetch(rom, { headers: this.context?.fetchHeaders });
       if (!resp.ok) {
@@ -320,9 +329,8 @@ export class Pico8Adapter extends BaseCoreBridge {
     }
 
     if (rom instanceof Blob) {
-      return this._blobToDataUrl(
-        new Blob([await rom.arrayBuffer()], { type: mimeType }),
-      );
+      const type = rom.type || mimeType;
+      return this._blobToDataUrl(new Blob([await rom.arrayBuffer()], { type }));
     }
 
     if (rom instanceof Uint8Array) {
@@ -346,12 +354,11 @@ export class Pico8Adapter extends BaseCoreBridge {
     });
   }
 
-  private async _instantiatePico8Runtime(): Promise<void> {
-    const win = window as any;
-    if (this._isRuntimeReady && win.Module) {
-      return;
-    }
-
+  private async _instantiatePico8Runtime(
+    dataUrl: string,
+    cartName: string,
+  ): Promise<void> {
+    const win = this._getGlobalWindow();
     const canvas = this.context?.canvas;
     if (canvas) {
       canvas.style.imageRendering = 'pixelated';
@@ -362,6 +369,17 @@ export class Pico8Adapter extends BaseCoreBridge {
     if (this.context?.audioContext) {
       win.pico8_audio_context = this.context.audioContext;
     }
+
+    if (this._isRuntimeReady && win.Module) {
+      if (canvas) {
+        win.Module.canvas = canvas;
+      }
+      return;
+    }
+
+    win.p8_dropped_cart = dataUrl;
+    win.p8_dropped_cart_name = cartName;
+    win.codo_command = 9;
 
     const baseUrl = this.context?.assetBaseUrl?.includes('pico8')
       ? this.context.assetBaseUrl
@@ -403,7 +421,7 @@ export class Pico8Adapter extends BaseCoreBridge {
           this.context?.onLog?.(text, 'error');
         },
         onRuntimeInitialized: () => {
-          setTimeout(doResolve, 150);
+          setTimeout(doResolve, 100);
         },
       };
 
