@@ -230,12 +230,6 @@ export class VideoManager implements IVideoManager {
         return;
       }
     } catch (_) {}
-
-    try {
-      const w = canvas.width;
-      canvas.width = 1;
-      canvas.width = w;
-    } catch (_) {}
   }
 
   public destroy(): void {

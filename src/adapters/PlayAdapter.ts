@@ -218,6 +218,11 @@ export class PlayAdapter extends BaseCoreBridge {
       this.context.canvas.id = 'canvas';
     }
     if (this._playModule) {
+      if (typeof this._playModule.pauseMainLoop === 'function') {
+        try {
+          this._playModule.pauseMainLoop();
+        } catch (_) {}
+      }
       if (typeof this._playModule.abort === 'function') {
         try {
           this._playModule.abort();

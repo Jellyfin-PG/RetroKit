@@ -221,6 +221,11 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
   public override async destroy(): Promise<void> {
     await super.destroy();
     if (this._module) {
+      if (typeof this._module.pauseMainLoop === 'function') {
+        try {
+          this._module.pauseMainLoop();
+        } catch (_) {}
+      }
       if (typeof this._module.abort === 'function') {
         try {
           this._module.abort();
@@ -232,6 +237,12 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
     if (this._scriptElement?.parentNode) {
       this._scriptElement.parentNode.removeChild(this._scriptElement);
       this._scriptElement = null;
+    }
+
+    if (typeof window !== 'undefined' && (window as any).EJS_Runtime) {
+      try {
+        delete (window as any).EJS_Runtime;
+      } catch (_) {}
     }
 
     for (const url of this._blobUrlsToRevoke) {

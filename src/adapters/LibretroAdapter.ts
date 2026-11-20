@@ -182,6 +182,11 @@ export class LibretroAdapter extends BaseCoreBridge {
   public override async destroy(): Promise<void> {
     await super.destroy();
     if (this._module) {
+      if (typeof this._module.pauseMainLoop === 'function') {
+        try {
+          this._module.pauseMainLoop();
+        } catch (_) {}
+      }
       if (typeof this._module.abort === 'function') {
         try {
           this._module.abort();

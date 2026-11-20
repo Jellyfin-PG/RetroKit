@@ -260,6 +260,9 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
       this._adapter = null;
     }
 
+    // Reset canvas to grant a pristine rendering surface for the new core
+    this._resetCanvas();
+
     // Instantiate appropriate Core Bridge
     this._adapter = this._createAdapter(coreMeta);
 
@@ -296,7 +299,11 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     this.emit('ready', { core: coreMeta.id, gameId });
   }
 
-  public play(): void {
+  public async play(): Promise<void> {
+    if (!this._isRunning && this._activeRom) {
+      await this.load(this._activeRom, this._lastLoadOptions);
+      return;
+    }
     if (!this._adapter) return;
     this.audio.unlockAudio().catch(() => {});
     this._adapter.resume();
@@ -325,9 +332,33 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     }
     await this._adapter.stop();
     this._isRunning = false;
-    this._isPaused = true;
+    this._isPaused = false;
     this.video.clear();
     this.emit('stop');
+  }
+
+  /**
+   * Updates the active target platform hint for subsequent game launches.
+   */
+  public setSystem(system: string | undefined): void {
+    if (!this._lastLoadOptions) {
+      this._lastLoadOptions = {};
+    }
+    this._lastLoadOptions.system = system;
+  }
+
+  /**
+   * Returns the configuration options supplied during the most recent load.
+   */
+  public get lastLoadOptions(): GameLoadOptions | undefined {
+    return this._lastLoadOptions;
+  }
+
+  /**
+   * Returns the active ROM payload held in memory.
+   */
+  public get activeRom(): ArrayBuffer | Blob | string | Uint8Array | null {
+    return this._activeRom;
   }
 
   public async restart(): Promise<void> {
@@ -468,6 +499,36 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     }
 
     return undefined;
+  }
+
+  /**
+   * Replaces the canvas DOM element with a clean canvas surface to prevent
+   * WebGL, WebGL2, or 2D context collisions when switching emulator cores.
+   */
+  private _resetCanvas(): HTMLCanvasElement | null {
+    const oldCanvas = this._config.canvas;
+    if (
+      !oldCanvas ||
+      typeof document === 'undefined' ||
+      !oldCanvas.parentNode
+    ) {
+      return oldCanvas || null;
+    }
+
+    const newCanvas = document.createElement('canvas');
+    if (oldCanvas.id) newCanvas.id = oldCanvas.id;
+    if (oldCanvas.className) newCanvas.className = oldCanvas.className;
+    newCanvas.width = oldCanvas.width || 640;
+    newCanvas.height = oldCanvas.height || 480;
+    newCanvas.tabIndex = oldCanvas.tabIndex >= 0 ? oldCanvas.tabIndex : 1;
+    if (oldCanvas.style.cssText) {
+      newCanvas.style.cssText = oldCanvas.style.cssText;
+    }
+    newCanvas.style.display = 'block';
+
+    oldCanvas.parentNode.replaceChild(newCanvas, oldCanvas);
+    this._config.canvas = newCanvas;
+    return newCanvas;
   }
 
   private _createAdapter(meta: CoreMetadata): ICoreAdapter {

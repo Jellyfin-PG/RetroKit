@@ -399,14 +399,24 @@ document.getElementById('bios-input')?.addEventListener('change', async (e) => {
   );
 });
 
+const systemSelect = document.getElementById(
+  'system-select',
+) as HTMLSelectElement;
+
+systemSelect?.addEventListener('change', () => {
+  const selected =
+    systemSelect.value && systemSelect.value !== 'auto'
+      ? systemSelect.value
+      : undefined;
+  emu.setSystem(selected);
+  log(`Target system platform updated to: ${systemSelect.value}`);
+});
+
 document.getElementById('file-input')?.addEventListener('change', async (e) => {
   const target = e.target as HTMLInputElement;
   const files = target.files;
   if (!files || files.length === 0) return;
 
-  const systemSelect = document.getElementById(
-    'system-select',
-  ) as HTMLSelectElement;
   const selectedSystem =
     systemSelect?.value && systemSelect.value !== 'auto'
       ? systemSelect.value
@@ -449,11 +459,63 @@ document.getElementById('file-input')?.addEventListener('change', async (e) => {
       additionalFiles: additionalFiles.length > 0 ? additionalFiles : undefined,
       patch: activePatchFile || undefined,
     });
-    emu.play();
+    await emu.play();
   } catch (err: any) {
     log(`Load error: ${err.message}`);
+  } finally {
+    target.value = '';
   }
 });
+
+// Drag and drop ROM files onto the viewport container
+const viewportContainer = document.getElementById('viewport-container');
+if (viewportContainer) {
+  viewportContainer.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  viewportContainer.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+
+    const selectedSystem =
+      systemSelect?.value && systemSelect.value !== 'auto'
+        ? systemSelect.value
+        : undefined;
+
+    let primaryFile = files[0];
+    const additionalFiles: Array<{ name: string; data: File }> = [];
+    if (files.length > 1) {
+      const fileList = Array.from(files);
+      const cueMatch = fileList.find(
+        (f) =>
+          f.name.toLowerCase().endsWith('.cue') ||
+          f.name.toLowerCase().endsWith('.m3u'),
+      );
+      if (cueMatch) primaryFile = cueMatch;
+      for (const f of fileList) {
+        if (f !== primaryFile) additionalFiles.push({ name: f.name, data: f });
+      }
+    }
+
+    log(
+      `Dropped file: ${primaryFile.name} (${(primaryFile.size / 1024).toFixed(1)} KB)...`,
+    );
+    try {
+      await emu.load(primaryFile, {
+        fileName: primaryFile.name,
+        system: selectedSystem,
+        additionalFiles:
+          additionalFiles.length > 0 ? additionalFiles : undefined,
+      });
+      await emu.play();
+    } catch (err: any) {
+      log(`Drop load error: ${err.message}`);
+    }
+  });
+}
 
 document.getElementById('btn-load-psp')?.addEventListener('click', async () => {
   log('Fetching test PSP cart: /test_carts/psp_hello_world.pbp...');

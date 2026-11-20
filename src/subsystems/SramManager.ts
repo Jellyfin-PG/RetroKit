@@ -83,7 +83,7 @@ export class SramManager implements ISramManager {
 
   private _startDirtyWatchdog(): void {
     // Periodically checks if the core's in-memory SRAM has changed (dirty detection)
-    this._pollTimer = window.setInterval(async () => {
+    this._pollTimer = setInterval(async () => {
       const adapter = this._getAdapter();
       if (!adapter || !adapter.capabilities.sram) return;
 
