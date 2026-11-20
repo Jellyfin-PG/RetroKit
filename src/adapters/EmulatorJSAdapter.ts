@@ -86,6 +86,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
   private _started = false;
   private _blobUrlsToRevoke: string[] = [];
   private _scriptElement: HTMLScriptElement | null = null;
+  private _pendingBios = new Map<string, Uint8Array>();
 
   constructor(
     id: string,
@@ -168,14 +169,18 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
         try {
           const safeName = this._romPath.split('/').pop() || 'rom.bin';
           const isDebug = !!this.context?.debug;
-          const args = isDebug ? ['-v', `/${safeName}`] : [`/${safeName}`];
+          const cfgPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
+          const args = isDebug
+            ? ['-v', '-c', cfgPath, `/${safeName}`]
+            : ['-c', cfgPath, `/${safeName}`];
           this._module.callMain(args);
-          if (typeof this._module.resumeMainLoop === 'function') {
-            this._module.resumeMainLoop();
-          }
         } catch (err: any) {
           if (err && err.name !== 'ExitStatus') {
             console.error('[EmulatorJSAdapter] Error starting core:', err);
+          } else if (err?.status && err.status !== 0) {
+            console.error(
+              `[EmulatorJSAdapter] Core exited with code ${err.status}`,
+            );
           }
         }
       }
@@ -466,6 +471,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
     data: Uint8Array,
   ): Promise<void> {
     const cleanName = name.replace(/^.*[\\/]/, '');
+    this._pendingBios.set(cleanName, data);
     const sysDir = '/home/web_user/retroarch/userdata/system';
     if (this._module?.FS) {
       this._ensureDirectories(this._module.FS, sysDir);
@@ -765,15 +771,18 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
         preserveDrawingBuffer: true,
         antialias: false,
         powerPreference: 'high-performance',
+        majorVersion: cfg.needsWebGL2 ? 2 : 1,
+        minorVersion: 0,
       },
+      wasmBinary: wasmBytes,
       noInitialRun: true,
       arguments: [],
       mainScriptUrlOrBlob: jsBlobUrl,
-      locateFile: (path: string) => {
+      locateFile: (path: string, prefix: string) => {
         if (path.endsWith('.wasm')) {
           return wasmBlobUrl;
         }
-        return undefined;
+        return (prefix || '') + path;
       },
       callbacks: {
         setupCoreSettingFile: () => {},
@@ -813,6 +822,26 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
               this._injectPpssppAssets(mod.FS, ppssppAssets);
             }
 
+            // Flush any BIOS files registered before module instantiation
+            for (const [biosName, biosData] of this._pendingBios.entries()) {
+              try {
+                mod.FS.writeFile(
+                  `/home/web_user/retroarch/userdata/system/${biosName}`,
+                  biosData,
+                );
+                this.context?.onLog?.(
+                  `[EmulatorJSAdapter] Flushed queued BIOS: ${biosName} (${biosData.byteLength} bytes)`,
+                  'info',
+                );
+              } catch (e) {
+                console.warn(
+                  '[EmulatorJSAdapter] Failed to flush queued BIOS:',
+                  biosName,
+                  e,
+                );
+              }
+            }
+
             // Minimal default retroarch.cfg
             const minimalCfg = [
               'video_driver = "gl"',
@@ -820,7 +849,8 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
               'input_driver = "rwebinput"',
               'video_vsync = "false"',
               'video_smooth = "false"',
-              'video_threaded = "true"',
+              'video_threaded = "false"',
+              'video_shared_context = "true"',
               'video_hard_sync = "false"',
               'video_frame_delay = "0"',
               'audio_latency = "64"',
@@ -1071,18 +1101,25 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
     );
 
     for (const [relativePath, data] of Object.entries(assets)) {
-      if (relativePath.endsWith('/')) {
-        this._ensureDirectories(fs, `/PPSSPP/${relativePath}`);
-        this._ensureDirectories(
-          fs,
-          `/home/web_user/retroarch/userdata/system/PPSSPP/${relativePath}`,
-        );
+      const cleanRel = relativePath
+        .replace(/\\/g, '/')
+        .replace(/^\.?\/?ppsspp\//i, '');
+      if (!cleanRel) continue;
+
+      if (cleanRel.endsWith('/') || relativePath.endsWith('/')) {
+        const dirRel = cleanRel.replace(/\/$/, '');
+        if (dirRel) {
+          this._ensureDirectories(fs, `/PPSSPP/${dirRel}`);
+          this._ensureDirectories(
+            fs,
+            `/home/web_user/retroarch/userdata/system/PPSSPP/${dirRel}`,
+          );
+        }
         continue;
       }
 
-      const normalized = relativePath.replace(/\\/g, '/');
-      const target1 = `/PPSSPP/${normalized}`;
-      const target2 = `/home/web_user/retroarch/userdata/system/PPSSPP/${normalized}`;
+      const target1 = `/PPSSPP/${cleanRel}`;
+      const target2 = `/home/web_user/retroarch/userdata/system/PPSSPP/${cleanRel}`;
 
       const parentDir1 = target1.substring(0, target1.lastIndexOf('/'));
       const parentDir2 = target2.substring(0, target2.lastIndexOf('/'));

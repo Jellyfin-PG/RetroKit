@@ -207,8 +207,8 @@ export class VideoManager implements IVideoManager {
 
     try {
       const gl =
-        canvas.getContext('webgl') ||
         canvas.getContext('webgl2') ||
+        canvas.getContext('webgl') ||
         canvas.getContext('experimental-webgl');
       if (gl) {
         const glCtx = gl as WebGLRenderingContext;

@@ -40,6 +40,11 @@ export default defineConfig({
         headers: {
           'Cross-Origin-Resource-Policy': 'cross-origin',
         },
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['cross-origin-resource-policy'] = 'cross-origin';
+          });
+        },
       },
       '/emulatorjs-cores': {
         target: 'https://cdn.emulatorjs.org',
@@ -48,6 +53,11 @@ export default defineConfig({
         headers: {
           'Cross-Origin-Resource-Policy': 'cross-origin',
         },
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['cross-origin-resource-policy'] = 'cross-origin';
+          });
+        },
       },
       '/play-cores': {
         target: 'https://playjs.purei.org',
@@ -55,6 +65,11 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/play-cores/, ''),
         headers: {
           'Cross-Origin-Resource-Policy': 'cross-origin',
+        },
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['cross-origin-resource-policy'] = 'cross-origin';
+          });
         },
       },
       '/ra-api': {

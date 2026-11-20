@@ -430,6 +430,7 @@ export class CoreRegistry {
       family: 'libretro',
       extensions: ['n64', 'z64', 'v64'],
       needsThreads: true,
+      needsWebGL2: true,
       capabilities: {
         saveStates: true,
         sram: true,

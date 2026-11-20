@@ -1,3 +1,4 @@
+import { CoreRegistry } from '../core/CoreRegistry';
 import type {
   CoreCapabilities,
   CoreOptionDefinition,
@@ -24,6 +25,7 @@ export class LibretroAdapter extends BaseCoreBridge {
   private _coreOptionsMap: Record<string, string> = {};
   private _additionalFiles: Array<{ name: string; data: Uint8Array }> = [];
   private _started = false;
+  private _pendingBios = new Map<string, Uint8Array>();
 
   constructor(
     id: string,
@@ -125,6 +127,10 @@ export class LibretroAdapter extends BaseCoreBridge {
         } catch (err: any) {
           if (err && err.name !== 'ExitStatus') {
             console.error('[LibretroAdapter] Error starting callMain:', err);
+          } else if (err?.status && err.status !== 0) {
+            console.error(
+              `[LibretroAdapter] Core exited with code ${err.status}`,
+            );
           }
         }
       }
@@ -185,6 +191,11 @@ export class LibretroAdapter extends BaseCoreBridge {
       if (typeof this._module.pauseMainLoop === 'function') {
         try {
           this._module.pauseMainLoop();
+        } catch (_) {}
+      }
+      if (this._module.PThread?.terminateAllThreads) {
+        try {
+          this._module.PThread.terminateAllThreads();
         } catch (_) {}
       }
       if (typeof this._module.abort === 'function') {
@@ -453,6 +464,7 @@ export class LibretroAdapter extends BaseCoreBridge {
     data: Uint8Array,
   ): Promise<void> {
     const cleanName = name.replace(/^.*[\\/]/, '');
+    this._pendingBios.set(cleanName, data);
     const sysDir = '/home/web_user/retroarch/userdata/system';
     if (this._module?.FS) {
       this._ensureDirectories(this._module.FS, sysDir);
@@ -746,12 +758,16 @@ export class LibretroAdapter extends BaseCoreBridge {
       ? ['-v', '-c', cfgPath, this._romPath]
       : ['-c', cfgPath, this._romPath];
 
+    const isWebGL2Needed = !!CoreRegistry.getCore(this.id)?.needsWebGL2;
+
     const moduleOverrides: any = {
       canvas: this.context?.canvas,
       webglContextAttributes: {
         preserveDrawingBuffer: true,
         antialias: false,
         powerPreference: 'high-performance',
+        majorVersion: isWebGL2Needed ? 2 : 1,
+        minorVersion: 0,
       },
       noInitialRun: true,
       arguments: coreArgs,
@@ -801,6 +817,26 @@ export class LibretroAdapter extends BaseCoreBridge {
               mod.FS.writeFile(corePath, new Uint8Array());
             } catch (_) {}
 
+            // Flush any BIOS files registered before module instantiation
+            for (const [biosName, biosData] of this._pendingBios.entries()) {
+              try {
+                mod.FS.writeFile(
+                  `/home/web_user/retroarch/userdata/system/${biosName}`,
+                  biosData,
+                );
+                this.context?.onLog?.(
+                  `[LibretroAdapter] Flushed queued BIOS: ${biosName} (${biosData.byteLength} bytes)`,
+                  'info',
+                );
+              } catch (e) {
+                console.warn(
+                  '[LibretroAdapter] Failed to flush queued BIOS:',
+                  biosName,
+                  e,
+                );
+              }
+            }
+
             // Optimized default retroarch.cfg
             const minimalCfg = [
               'video_driver = "gl"',
@@ -808,7 +844,8 @@ export class LibretroAdapter extends BaseCoreBridge {
               'input_driver = "rwebinput"',
               'video_vsync = "false"',
               'video_smooth = "false"',
-              'video_threaded = "true"',
+              'video_threaded = "false"',
+              'video_shared_context = "true"',
               'video_hard_sync = "false"',
               'video_frame_delay = "0"',
               'audio_latency = "64"',
