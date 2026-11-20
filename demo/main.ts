@@ -551,6 +551,23 @@ document
     }
   });
 
+document
+  .getElementById('btn-load-pico8-sram')
+  ?.addEventListener('click', async () => {
+    log('Fetching PICO-8 SRAM test cart: /test_carts/sram_test.p8...');
+    try {
+      const res = await fetch('/test_carts/sram_test.p8');
+      const text = await res.text();
+      await emu.load(text, {
+        fileName: 'sram_test.p8',
+        system: 'pico8',
+      });
+      emu.play();
+    } catch (err: any) {
+      log(`PICO-8 SRAM test load error: ${err.message}`);
+    }
+  });
+
 document.getElementById('btn-load-psp')?.addEventListener('click', async () => {
   log('Fetching test PSP cart: /test_carts/psp_hello_world.pbp...');
   try {

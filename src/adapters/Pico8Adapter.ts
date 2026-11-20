@@ -278,7 +278,11 @@ export class Pico8Adapter extends BaseCoreBridge {
     }
 
     const keys = Object.keys(result);
-    if (keys.length === 0) return null;
+    if (keys.length === 0) {
+      // PICO-8 uses a fixed 256-byte (64 numbers * 4 bytes) persistent data table.
+      // If the cart hasn't written to /user_data/cdata yet, provide a fresh 256-byte table.
+      return new Uint8Array(256);
+    }
     if (keys.length === 1) {
       return result[keys[0]];
     }

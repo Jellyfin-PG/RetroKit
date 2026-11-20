@@ -124,6 +124,270 @@ export class CoreRegistry {
     });
 
     this.registerCore({
+      id: 'dosbox_pure',
+      name: 'MS-DOS (DOSBox Pure)',
+      system: 'dos',
+      family: 'emulatorjs',
+      extensions: ['exe', 'com', 'bat', 'dos', 'zip', 'iso', 'cue'],
+      needsThreads: true,
+      needsWebGL2: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: true,
+        coreOptions: true,
+        multiDisc: true,
+        shaders: false,
+        rewind: true,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: true,
+      },
+    });
+
+    this.registerCore({
+      id: 'yabause',
+      name: 'Sega Saturn (Yabause)',
+      system: 'saturn',
+      family: 'emulatorjs',
+      extensions: ['iso', 'cue', 'bin', 'chd', 'm3u'],
+      needsWebGL2: true,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: true,
+        coreOptions: true,
+        multiDisc: true,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'virtualjaguar',
+      name: 'Atari Jaguar (Virtual Jaguar)',
+      system: 'jaguar',
+      family: 'emulatorjs',
+      extensions: ['jag', 'j64', 'rom', 'bin'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'puae',
+      name: 'Commodore Amiga (PUAE)',
+      system: 'amiga',
+      family: 'emulatorjs',
+      extensions: ['adf', 'dms', 'ipf', 'hsp', 'lha', 'zip'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: true,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: true,
+      },
+    });
+
+    this.registerCore({
+      id: 'vice_x64sc',
+      name: 'Commodore 64 (VICE x64sc)',
+      system: 'c64',
+      family: 'emulatorjs',
+      extensions: ['d64', 't64', 'tap', 'crt', 'prg', 'g64'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: true,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: true,
+      },
+    });
+
+    this.registerCore({
+      id: 'freeintv',
+      name: 'Intellivision (FreeIntv)',
+      system: 'intellivision',
+      family: 'emulatorjs',
+      extensions: ['int', 'bin', 'rom'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'a5200',
+      name: 'Atari 5200 (a5200)',
+      system: 'atari5200',
+      family: 'emulatorjs',
+      extensions: ['a52', 'bin', 'rom'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'prosystem',
+      name: 'Atari 7800 (ProSystem)',
+      system: 'atari7800',
+      family: 'emulatorjs',
+      extensions: ['a78', 'bin'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'same_cdi',
+      name: 'Philips CD-i (SAME CD-i)',
+      system: 'cdi',
+      family: 'emulatorjs',
+      extensions: ['iso', 'chd', 'cue', 'bin'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 1,
+        pointer: true,
+      },
+    });
+
+    this.registerCore({
+      id: 'mednafen_pcfx',
+      name: 'PC-FX (Mednafen PC-FX)',
+      system: 'pcfx',
+      family: 'emulatorjs',
+      extensions: ['cue', 'chd', 'iso', 'bin'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: true,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 2,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'fbneo',
+      name: 'Arcade (FinalBurn Neo)',
+      system: 'arcade',
+      family: 'emulatorjs',
+      extensions: ['zip', '7z'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: true,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 4,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'mame2003_plus',
+      name: 'Arcade (MAME 2003-Plus)',
+      system: 'arcade',
+      family: 'emulatorjs',
+      extensions: ['zip', '7z'],
+      needsWebGL2: false,
+      needsThreads: false,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: true,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 4,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
       id: 'ruffle',
       name: 'Adobe Flash (Ruffle)',
       system: 'flash',
@@ -1131,8 +1395,8 @@ export class CoreRegistry {
       id: 'gearcoleco',
       name: 'ColecoVision (Gearcoleco)',
       system: 'colecovision',
-      family: 'libretro',
-      extensions: ['col', 'bin'],
+      family: 'emulatorjs',
+      extensions: ['col', 'bin', 'cv'],
       capabilities: {
         saveStates: true,
         sram: true,
@@ -1171,8 +1435,9 @@ export class CoreRegistry {
       id: 'opera',
       name: '3DO (Opera)',
       system: '3do',
-      family: 'libretro',
+      family: 'emulatorjs',
       extensions: ['iso', 'chd', 'cue'],
+      needsWebGL2: true,
       capabilities: {
         saveStates: true,
         sram: true,
@@ -2202,6 +2467,40 @@ export class CoreRegistry {
       case 'love2d':
       case 'lovejs':
         return 'love';
+      case 'dos':
+      case 'msdos':
+      case 'ms-dos':
+      case 'pc':
+        return 'dos';
+      case 'saturn':
+      case 'segasaturn':
+      case 'sega-saturn':
+        return 'saturn';
+      case 'jaguar':
+      case 'atarijaguar':
+      case 'atari-jaguar':
+        return 'jaguar';
+      case 'amiga':
+      case 'commodore-amiga':
+        return 'amiga';
+      case 'intv':
+      case 'intellivision':
+        return 'intellivision';
+      case 'a5200':
+      case 'atari5200':
+      case 'atari-5200':
+        return 'atari5200';
+      case 'a7800':
+      case 'atari7800':
+      case 'atari-7800':
+        return 'atari7800';
+      case 'pcfx':
+      case 'pc-fx':
+        return 'pcfx';
+      case 'cdi':
+      case 'cd-i':
+      case 'philips-cdi':
+        return 'cdi';
       default:
         return s;
     }
