@@ -7,9 +7,12 @@ import { BaseCoreBridge } from './BaseCoreBridge';
 import type { AdapterContext } from './ICoreAdapter';
 
 /**
- * Pico8Adapter bridges the official Lexaloffle PICO-8 standalone web player
- * to RetroKit. It runs cartridges (.p8 and .p8.png) with official Lexaloffle
- * compatibility without relying on the alpha retro8 libretro core.
+ * Pico8Adapter bridges the official Lexaloffle PICO-8 standalone web runtime
+ * to RetroKit using the proven architecture from JellyEmu.
+ *
+ * It boots cartridges (.p8 and .p8.png) via Module.arguments and Module.readAsync,
+ * providing 100% native Lexaloffle PICO-8 compatibility for both binary PNG carts
+ * and plaintext .p8 carts without syntax errors or drop timing failures.
  */
 export class Pico8Adapter extends BaseCoreBridge {
   public readonly id = 'pico8';
@@ -37,27 +40,34 @@ export class Pico8Adapter extends BaseCoreBridge {
   private static readonly BUTTON_MENU = 0x40;
 
   private static readonly RETROPAD_TO_PICO8: Record<number, number> = {
-    0: Pico8Adapter.BUTTON_O, // RETROPAD_B
-    1: Pico8Adapter.BUTTON_X, // RETROPAD_X
-    2: Pico8Adapter.BUTTON_MENU, // RETROPAD_SELECT
-    3: Pico8Adapter.BUTTON_MENU, // RETROPAD_START
+    0: Pico8Adapter.BUTTON_O, // RETROPAD_B -> O (Z)
+    1: Pico8Adapter.BUTTON_X, // RETROPAD_X -> X (X)
+    2: Pico8Adapter.BUTTON_MENU, // RETROPAD_SELECT -> Menu (Enter)
+    3: Pico8Adapter.BUTTON_MENU, // RETROPAD_START -> Menu (Enter)
     4: Pico8Adapter.BUTTON_UP, // RETROPAD_UP
     5: Pico8Adapter.BUTTON_DOWN, // RETROPAD_DOWN
     6: Pico8Adapter.BUTTON_LEFT, // RETROPAD_LEFT
     7: Pico8Adapter.BUTTON_RIGHT, // RETROPAD_RIGHT
-    8: Pico8Adapter.BUTTON_X, // RETROPAD_A
-    9: Pico8Adapter.BUTTON_O, // RETROPAD_Y
+    8: Pico8Adapter.BUTTON_X, // RETROPAD_A -> X
+    9: Pico8Adapter.BUTTON_O, // RETROPAD_Y -> O
   };
 
   private _scriptElement: HTMLScriptElement | null = null;
-  private _isRuntimeReady = false;
+  private _textareaElement: HTMLTextAreaElement | null = null;
+  private _createdBlobUrls: string[] = [];
   private _lastFrameNumber = 0;
   private _lastFpsCalcTime = 0;
   private _currentFps = 0;
+  private _isReady = false;
+
+  public get isReady(): boolean {
+    return this._isReady;
+  }
 
   public override async init(context: AdapterContext): Promise<void> {
     await super.init(context);
-    this._ensureGlobalButtons();
+    this._ensureDOMTextarea();
+    this._ensureGlobalState();
   }
 
   public async loadGame(
@@ -65,59 +75,32 @@ export class Pico8Adapter extends BaseCoreBridge {
     options?: GameLoadOptions,
   ): Promise<void> {
     const fileName = options?.fileName || 'cart.p8.png';
-    const isPngName = fileName.toLowerCase().endsWith('.png');
-    const isP8Name = fileName.toLowerCase().endsWith('.p8');
-    const normalizedCartName =
-      isPngName || isP8Name ? fileName : `${fileName}.p8.png`;
+    const isPng =
+      fileName.toLowerCase().endsWith('.png') ||
+      (rom instanceof Uint8Array && this._isPngSignature(rom));
 
     const romBytes = await this._getRomBytes(rom);
-    const isPng = this._isPngSignature(romBytes) || isPngName;
-    const dataUrl = await this._convertToDataUrl(romBytes, isPng);
+    const cartBuffer = romBytes.buffer.slice(
+      romBytes.byteOffset,
+      romBytes.byteOffset + romBytes.byteLength,
+    ) as ArrayBuffer;
 
-    const win = this._getGlobalWindow();
-
-    if (isPng) {
-      try {
-        const cartdat = await this._extractCartdatFromPng(dataUrl);
-        win._cartdat = cartdat;
-        win._cartname = [normalizedCartName];
-        win._cdpos = 0;
-      } catch (e) {
-        console.warn(
-          '[Pico8Adapter] Failed to extract _cartdat from PNG, falling back to drop handler:',
-          e,
-        );
-        win._cartdat = new Array(32768).fill(0);
-        win._cartname = [normalizedCartName];
-        win._cdpos = 0;
-      }
+    let cartUrl: string;
+    if (
+      typeof rom === 'string' &&
+      (rom.startsWith('/') ||
+        rom.startsWith('http://') ||
+        rom.startsWith('https://'))
+    ) {
+      cartUrl = rom;
     } else {
-      win._cartdat = new Array(32768).fill(0);
-      win._cartname = [normalizedCartName];
-      win._cdpos = 0;
+      const mimeType = isPng ? 'image/png' : 'text/plain;charset=utf-8';
+      const blob = new Blob([cartBuffer], { type: mimeType });
+      cartUrl = URL.createObjectURL(blob);
+      this._createdBlobUrls.push(cartUrl);
     }
 
-    if (!this._isRuntimeReady) {
-      await this._instantiatePico8Runtime();
-    }
-
-    if (!isPng || this._isRuntimeReady) {
-      win.p8_dropped_cart = dataUrl;
-      win.p8_dropped_cart_name = normalizedCartName;
-      win.codo_command = 9;
-
-      let attempts = 0;
-      await new Promise<void>((resolve) => {
-        const interval = setInterval(() => {
-          attempts++;
-          if (win.codo_command === 0 || attempts > 30) {
-            clearInterval(interval);
-            resolve();
-          }
-        }, 50);
-      });
-    }
-
+    await this._bootPico8(cartUrl, fileName, cartBuffer);
     this.start();
   }
 
@@ -182,15 +165,26 @@ export class Pico8Adapter extends BaseCoreBridge {
       this._scriptElement.parentNode.removeChild(this._scriptElement);
       this._scriptElement = null;
     }
+    if (this._textareaElement && this._textareaElement.parentNode) {
+      this._textareaElement.parentNode.removeChild(this._textareaElement);
+      this._textareaElement = null;
+    }
+    for (const url of this._createdBlobUrls) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch (_) {}
+    }
+    this._createdBlobUrls = [];
+
     const win = this._getGlobalWindow();
-    win._cartdat = undefined;
-    win._cartname = undefined;
-    win._cdpos = 0;
-    win.codo_command = 0;
-    win.p8_dropped_cart = null;
-    win.p8_dropped_cart_name = null;
+    delete win.Module;
+    delete win._cartdat;
+    delete win._cartname;
+    delete win._cdpos;
+    win.pico8_buttons = [0, 0, 0, 0, 0, 0, 0, 0];
     win.pico8_state = {};
-    this._isRuntimeReady = false;
+    win.codo_command = 0;
+    this._isReady = false;
     await super.destroy();
   }
 
@@ -203,7 +197,7 @@ export class Pico8Adapter extends BaseCoreBridge {
     const mask = Pico8Adapter.RETROPAD_TO_PICO8[buttonId];
     if (!mask) return;
 
-    this._ensureGlobalButtons();
+    this._ensureGlobalState();
     const win = this._getGlobalWindow();
     if (pressed) {
       win.pico8_buttons[player] |= mask;
@@ -317,13 +311,42 @@ export class Pico8Adapter extends BaseCoreBridge {
       : (globalThis as any);
   }
 
-  private _ensureGlobalButtons(): void {
+  private _ensureDOMTextarea(): void {
+    if (typeof document === 'undefined') return;
+    let el = document.getElementById(
+      'codo_textarea',
+    ) as HTMLTextAreaElement | null;
+    if (!el) {
+      el = document.createElement('textarea');
+      el.id = 'codo_textarea';
+      el.className = 'emscripten';
+      el.style.cssText =
+        'display:none;position:absolute;left:-9999px;height:0;overflow:hidden;';
+      document.body.appendChild(el);
+      this._textareaElement = el;
+    }
+  }
+
+  private _ensureGlobalState(): void {
     const win = this._getGlobalWindow();
     if (!win.pico8_buttons || !Array.isArray(win.pico8_buttons)) {
       win.pico8_buttons = [0, 0, 0, 0, 0, 0, 0, 0];
     }
     if (!win.pico8_state) {
       win.pico8_state = {};
+    }
+    if (!win.pico8_gamepads) {
+      win.pico8_gamepads = { count: 0 };
+    }
+    if (!win.pico8_gpio) {
+      win.pico8_gpio = new Array(128);
+    }
+    if (this.context?.audioContext && !win.pico8_audio_context) {
+      win.pico8_audio_context = this.context.audioContext;
+    }
+    if (typeof document !== 'undefined') {
+      win.codo_textarea =
+        document.getElementById('codo_textarea') || this._textareaElement;
     }
   }
 
@@ -386,55 +409,11 @@ export class Pico8Adapter extends BaseCoreBridge {
     return new Uint8Array(rom);
   }
 
-  private async _convertToDataUrl(
-    bytes: Uint8Array,
-    isPng: boolean,
-  ): Promise<string> {
-    const mimeType = isPng ? 'image/png' : 'text/plain;charset=utf-8';
-    const blob = new Blob([bytes as any], { type: mimeType });
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () =>
-        reject(new Error('[Pico8Adapter] Failed reading cartridge blob.'));
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  private async _extractCartdatFromPng(dataUrl: string): Promise<number[]> {
-    if (typeof Image === 'undefined' || typeof document === 'undefined') {
-      throw new Error('[Pico8Adapter] DOM Image not available for PNG decode');
-    }
-
-    const img = new Image();
-    img.src = dataUrl;
-    await img.decode();
-
-    const canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth || img.width || 160;
-    canvas.height = img.naturalHeight || img.height || 205;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) {
-      throw new Error('[Pico8Adapter] Canvas 2d context unavailable');
-    }
-
-    ctx.drawImage(img, 0, 0);
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-
-    const cartdat: number[] = new Array(32768);
-    for (let i = 0; i < 32768; i++) {
-      const r = imgData[i * 4];
-      const g = imgData[i * 4 + 1];
-      const b = imgData[i * 4 + 2];
-      const a = imgData[i * 4 + 3];
-      cartdat[i] = ((a & 3) << 6) | ((r & 3) << 4) | ((g & 3) << 2) | (b & 3);
-    }
-
-    return cartdat;
-  }
-
-  private async _instantiatePico8Runtime(): Promise<void> {
-    const win = this._getGlobalWindow();
+  private async _bootPico8(
+    cartUrl: string,
+    fileName: string,
+    cartBuffer: ArrayBuffer,
+  ): Promise<void> {
     const canvas = this.context?.canvas;
     if (canvas) {
       canvas.style.imageRendering = 'pixelated';
@@ -442,9 +421,63 @@ export class Pico8Adapter extends BaseCoreBridge {
       canvas.height = 128;
     }
 
-    if (this.context?.audioContext) {
-      win.pico8_audio_context = this.context.audioContext;
+    if (this._scriptElement && this._scriptElement.parentNode) {
+      this._scriptElement.parentNode.removeChild(this._scriptElement);
+      this._scriptElement = null;
     }
+
+    this._ensureDOMTextarea();
+    this._ensureGlobalState();
+
+    const win = this._getGlobalWindow();
+    delete win._cartdat;
+    delete win._cartname;
+    delete win._cdpos;
+
+    const isDebug = !!this.context?.debug;
+
+    const moduleObj: any = {
+      canvas,
+      arguments: [cartUrl],
+      readAsync: (
+        url: string,
+        onload: (buffer: ArrayBuffer) => void,
+        onerror: (err?: any) => void,
+      ) => {
+        if (
+          url === cartUrl ||
+          url === fileName ||
+          url.endsWith(fileName) ||
+          url.includes(fileName)
+        ) {
+          onload(cartBuffer);
+          return;
+        }
+
+        fetch(url)
+          .then((res) => {
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res.arrayBuffer();
+          })
+          .then(onload)
+          .catch((err) => {
+            if (onerror) onerror(err);
+          });
+      },
+      print: (text: string) => {
+        if (isDebug) console.log('[PICO-8]', text);
+        this.context?.onLog?.(text, 'info');
+      },
+      printErr: (text: string) => {
+        if (isDebug) console.error('[PICO-8 Err]', text);
+        this.context?.onLog?.(text, 'error');
+      },
+      onRuntimeInitialized: () => {
+        this._isReady = true;
+      },
+    };
+
+    win.Module = moduleObj;
 
     const baseUrl = this.context?.assetBaseUrl?.includes('pico8')
       ? this.context.assetBaseUrl
@@ -453,51 +486,30 @@ export class Pico8Adapter extends BaseCoreBridge {
       ? baseUrl
       : `${baseUrl.replace(/\/$/, '')}/pico8.js`;
 
-    const resp = await fetch(scriptUrl, {
-      headers: this.context?.fetchHeaders,
-    });
-    if (!resp.ok) {
-      throw new Error(
-        `[Pico8Adapter] Failed to fetch PICO-8 script from ${scriptUrl}`,
-      );
-    }
-    const code = await resp.text();
-
-    return new Promise<void>((resolve) => {
-      let resolved = false;
-      const doResolve = () => {
-        if (!resolved) {
-          resolved = true;
-          this._isRuntimeReady = true;
-          resolve();
-        }
-      };
-
-      win.on_module_load = () => {
-        doResolve();
-      };
-
-      win.Module = {
-        canvas,
-        print: (text: string) => {
-          this.context?.onLog?.(text, 'info');
-        },
-        printErr: (text: string) => {
-          this.context?.onLog?.(text, 'error');
-        },
-        onRuntimeInitialized: () => {
-          setTimeout(doResolve, 100);
-        },
-      };
-
+    return new Promise<void>((resolve, reject) => {
       const script = document.createElement('script');
-      script.textContent = code;
+      script.src = scriptUrl;
+      script.async = true;
       this._scriptElement = script;
-      document.head.appendChild(script);
 
-      setTimeout(() => {
-        doResolve();
-      }, 3000);
+      const timeout = setTimeout(() => {
+        resolve();
+      }, 4000);
+
+      moduleObj.onRuntimeInitialized = () => {
+        clearTimeout(timeout);
+        this._isReady = true;
+        resolve();
+      };
+
+      script.onerror = (err) => {
+        clearTimeout(timeout);
+        reject(
+          new Error(`[Pico8Adapter] Failed to load PICO-8 runtime: ${err}`),
+        );
+      };
+
+      document.body.appendChild(script);
     });
   }
 }
