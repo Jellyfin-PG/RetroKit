@@ -118,6 +118,15 @@ jobs:
           npm ci
           npm run build
 
+      - name: Configure package scope for npm
+        run: |
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.name = '@grimmdev/retrokit';
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
       - name: Publish to npm (Dry Run)
         if: ${{ github.event.inputs.dry-run == 'true' || github.event.inputs.dry-run == true }}
         run: npm publish --access public --dry-run
