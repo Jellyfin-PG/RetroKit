@@ -72,6 +72,20 @@ export default defineConfig({
           });
         },
       },
+      '/love-cores': {
+        target: 'https://cdn.jsdelivr.net',
+        changeOrigin: true,
+        rewrite: (path) =>
+          path.replace(/^\/love-cores/, '/gh/2dengine/love.js@main/11.5'),
+        headers: {
+          'Cross-Origin-Resource-Policy': 'cross-origin',
+        },
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['cross-origin-resource-policy'] = 'cross-origin';
+          });
+        },
+      },
       '/ra-api': {
         target: 'https://retroachievements.org',
         changeOrigin: true,

@@ -579,6 +579,23 @@ document.getElementById('btn-load-nds')?.addEventListener('click', async () => {
   }
 });
 
+document
+  .getElementById('btn-load-love')
+  ?.addEventListener('click', async () => {
+    log('Fetching test LÖVE cart: /test_carts/hello.love...');
+    try {
+      const res = await fetch('/test_carts/hello.love');
+      const buf = await res.arrayBuffer();
+      await emu.load(buf, {
+        fileName: 'hello.love',
+        system: 'love',
+      });
+      emu.play();
+    } catch (err: any) {
+      log(`LÖVE load error: ${err.message}`);
+    }
+  });
+
 document.getElementById('btn-play')?.addEventListener('click', async () => {
   await emu.play();
   log('Playback resumed.');

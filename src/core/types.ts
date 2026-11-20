@@ -40,7 +40,7 @@ export interface CoreMetadata {
   id: string;
   name: string;
   system: string;
-  family: 'libretro' | 'play' | 'ruffle' | 'pico8' | 'emulatorjs';
+  family: 'libretro' | 'play' | 'ruffle' | 'pico8' | 'emulatorjs' | 'love';
   extensions: string[];
   capabilities: CoreCapabilities;
   needsThreads?: boolean;

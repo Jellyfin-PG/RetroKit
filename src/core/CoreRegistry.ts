@@ -427,7 +427,7 @@ export class CoreRegistry {
       id: 'mupen64plus_next',
       name: 'Nintendo 64 (Mupen64Plus-Next)',
       system: 'n64',
-      family: 'libretro',
+      family: 'emulatorjs',
       extensions: ['n64', 'z64', 'v64'],
       needsThreads: true,
       needsWebGL2: true,
@@ -442,6 +442,48 @@ export class CoreRegistry {
         variableSpeed: true,
         maxPlayers: 4,
         pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'parallel_n64',
+      name: 'Nintendo 64 (ParaLLEl N64)',
+      system: 'n64',
+      family: 'emulatorjs',
+      extensions: ['n64', 'z64', 'v64'],
+      needsThreads: true,
+      needsWebGL2: true,
+      capabilities: {
+        saveStates: true,
+        sram: true,
+        cheats: true,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: true,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 4,
+        pointer: false,
+      },
+    });
+
+    this.registerCore({
+      id: 'love',
+      name: 'LÖVE (love.js)',
+      system: 'love',
+      family: 'love',
+      extensions: ['love', 'zip'],
+      capabilities: {
+        saveStates: false,
+        sram: true,
+        cheats: false,
+        coreOptions: true,
+        multiDisc: false,
+        shaders: false,
+        rewind: false,
+        variableSpeed: true,
+        maxPlayers: 4,
+        pointer: true,
       },
     });
 
@@ -2156,6 +2198,10 @@ export class CoreRegistry {
       case 'swf':
       case 'ruffle':
         return 'flash';
+      case 'love':
+      case 'love2d':
+      case 'lovejs':
+        return 'love';
       default:
         return s;
     }

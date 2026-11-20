@@ -5,6 +5,7 @@ export { EmulatorJSAdapter } from './adapters/EmulatorJSAdapter';
 // Adapters & Virtual Bridge
 export type { AdapterContext, ICoreAdapter } from './adapters/ICoreAdapter';
 export { LibretroAdapter } from './adapters/LibretroAdapter';
+export { LoveAdapter } from './adapters/LoveAdapter';
 export { Pico8Adapter } from './adapters/Pico8Adapter';
 export { PlayAdapter } from './adapters/PlayAdapter';
 export { RuffleAdapter } from './adapters/RuffleAdapter';

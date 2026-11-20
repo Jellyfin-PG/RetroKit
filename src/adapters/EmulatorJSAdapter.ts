@@ -54,6 +54,22 @@ const CORE_CONFIGS: Record<string, CorePackageConfig> = {
     needsWebGL2: true,
     needsThreads: false,
   },
+  mupen64plus_next: {
+    channel: 'stable',
+    bundleName: 'mupen64plus_next-thread-wasm.data',
+    jsName: 'mupen64plus_next_libretro.js',
+    wasmName: 'mupen64plus_next_libretro.wasm',
+    needsWebGL2: true,
+    needsThreads: true,
+  },
+  parallel_n64: {
+    channel: 'stable',
+    bundleName: 'parallel_n64-thread-wasm.data',
+    jsName: 'parallel_n64_libretro.js',
+    wasmName: 'parallel_n64_libretro.wasm',
+    needsWebGL2: true,
+    needsThreads: true,
+  },
 };
 
 /**
@@ -169,11 +185,11 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
         try {
           const safeName = this._romPath.split('/').pop() || 'rom.bin';
           const isDebug = !!this.context?.debug;
-          const cfgPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
-          const args = isDebug
-            ? ['-v', '-c', cfgPath, `/${safeName}`]
-            : ['-c', cfgPath, `/${safeName}`];
+          const args = isDebug ? ['-v', `/${safeName}`] : [`/${safeName}`];
           this._module.callMain(args);
+          if (typeof this._module.resumeMainLoop === 'function') {
+            this._module.resumeMainLoop();
+          }
         } catch (err: any) {
           if (err && err.name !== 'ExitStatus') {
             console.error('[EmulatorJSAdapter] Error starting core:', err);
@@ -767,13 +783,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
 
     const moduleOverrides: any = {
       canvas: this.context?.canvas,
-      webglContextAttributes: {
-        preserveDrawingBuffer: true,
-        antialias: false,
-        powerPreference: 'high-performance',
-        majorVersion: cfg.needsWebGL2 ? 2 : 1,
-        minorVersion: 0,
-      },
+      parent: this.context?.canvas?.parentElement || this.context?.canvas,
       wasmBinary: wasmBytes,
       noInitialRun: true,
       arguments: [],
@@ -842,19 +852,20 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
               }
             }
 
-            // Minimal default retroarch.cfg
+            // Native default configuration for EmulatorJS RetroArch runtime
             const minimalCfg = [
-              'video_driver = "gl"',
-              'audio_driver = "rwebaudio"',
-              'input_driver = "rwebinput"',
-              'video_vsync = "false"',
-              'video_smooth = "false"',
-              'video_threaded = "false"',
-              'video_shared_context = "true"',
-              'video_hard_sync = "false"',
-              'video_frame_delay = "0"',
-              'audio_latency = "64"',
-              'audio_sync = "true"',
+              'autosave_interval = 60',
+              'screenshot_directory = "/"',
+              'block_sram_overwrite = false',
+              'video_gpu_screenshot = false',
+              'audio_latency = 64',
+              'video_top_portrait_viewport = true',
+              'video_vsync = true',
+              'video_smooth = false',
+              'video_threaded = false',
+              'video_shared_context = true',
+              'fastforward_ratio = 3.0',
+              'slowmotion_ratio = 3.0',
               'savefile_directory = "/home/web_user/retroarch/userdata/saves"',
               'savestate_directory = "/home/web_user/retroarch/userdata/states"',
               'system_directory = "/home/web_user/retroarch/userdata/system"',
@@ -928,10 +939,93 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
     }
 
     this._module = await runtimeFactory(moduleOverrides);
+    this._initializeGameManager(this._module);
     this.context?.onLog?.(
       `[EmulatorJSAdapter] ${this.name} runtime instantiated successfully.`,
       'info',
     );
+  }
+
+  /**
+   * Initializes bindings matching EJS_GameManager so simulateInput, save/load states,
+   * variables, and SRAM flushing function properly across all EmulatorJS cores.
+   */
+  private _initializeGameManager(mod: any): void {
+    if (!mod || typeof mod.cwrap !== 'function') return;
+    try {
+      const fn = {
+        restart: mod.cwrap('system_restart', '', []),
+        saveStateInfo: mod.cwrap('save_state_info', 'string', []),
+        loadState: mod.cwrap('load_state', 'number', ['string', 'number']),
+        simulateInput: mod.cwrap('simulate_input', 'null', [
+          'number',
+          'number',
+          'number',
+        ]),
+        getCoreOptions: mod.cwrap('get_core_options', 'string', []),
+        setVariable: mod.cwrap('ejs_set_variable', 'null', [
+          'string',
+          'string',
+        ]),
+        setCheat: mod.cwrap('set_cheat', 'null', [
+          'number',
+          'number',
+          'string',
+        ]),
+        resetCheat: mod.cwrap('reset_cheat', 'null', []),
+        loadSaveFiles: mod.cwrap('refresh_save_files', 'null', []),
+        saveSaveFiles: mod.cwrap('cmd_savefiles', '', []),
+      };
+
+      mod.gameManager = {
+        simulateInput: (player: number, button: number, value: number) => {
+          try {
+            fn.simulateInput?.(player, button, value);
+          } catch (_) {}
+        },
+        getState: () => {
+          try {
+            if (!fn.saveStateInfo) return null;
+            const parts = fn.saveStateInfo().split('|');
+            if (parts[2] !== '1') return null;
+            const size = parseInt(parts[0], 10);
+            const start = parseInt(parts[1], 10);
+            return new Uint8Array(mod.HEAPU8.subarray(start, start + size));
+          } catch (_) {
+            return null;
+          }
+        },
+        loadState: (state: Uint8Array) => {
+          try {
+            mod.FS?.writeFile('/game.state', state);
+            fn.loadState?.('game.state', 0);
+            return true;
+          } catch (_) {
+            return false;
+          }
+        },
+        setVariable: (key: string, val: string) => {
+          try {
+            fn.setVariable?.(key, val);
+          } catch (_) {}
+        },
+        restart: () => {
+          try {
+            fn.restart?.();
+          } catch (_) {}
+        },
+        saveSaveFiles: () => {
+          try {
+            fn.saveSaveFiles?.();
+          } catch (_) {}
+        },
+        loadSaveFiles: () => {
+          try {
+            fn.loadSaveFiles?.();
+          } catch (_) {}
+        },
+      };
+    } catch (_) {}
   }
 
   /**

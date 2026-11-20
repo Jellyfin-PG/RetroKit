@@ -223,12 +223,12 @@ export class VideoManager implements IVideoManager {
     } catch (_) {}
 
     try {
-      const ctx2d = canvas.getContext('2d');
-      if (ctx2d) {
-        ctx2d.fillStyle = '#000000';
-        ctx2d.fillRect(0, 0, canvas.width, canvas.height);
-        return;
-      }
+      // Avoid calling getContext('2d') on a canvas without a context as it permanently prevents WebGL creation.
+      // Reassigning width clears the canvas buffer cleanly without binding any context.
+      const w = canvas.width;
+      const h = canvas.height;
+      canvas.width = w;
+      canvas.height = h;
     } catch (_) {}
   }
 
