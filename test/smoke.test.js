@@ -68,3 +68,16 @@ test('RetroKit setCoresDirectory and coresDirectory methods', () => {
   assert.equal(emu.coresDirectory, 'https://cores.example.com');
 });
 
+test('RetroKit supports existing canvas and setCanvas', () => {
+  const emu = new RetroKit({
+    preserveCanvas: true,
+  });
+  assert.equal(emu.canvas, undefined);
+
+  const mockCanvas = { id: 'existing-gl-canvas' };
+  emu.setCanvas(mockCanvas, { useExistingCanvas: true });
+  assert.equal(emu.canvas, mockCanvas);
+  assert.equal(emu.canvas.id, 'existing-gl-canvas');
+});
+
+

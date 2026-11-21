@@ -53,8 +53,18 @@ export interface CoreMetadata {
  * Initialization configuration for RetroKit.
  */
 export interface RetroKitConfig {
-  /** Target canvas element for rendering. */
-  canvas: HTMLCanvasElement;
+  /** Target canvas element for rendering. Optional if provided during load() or setCanvas(). */
+  canvas?: HTMLCanvasElement;
+
+  /**
+   * When true, preserves and reuses the existing canvas element instead of replacing
+   * the DOM node when switching cores or resetting. Ideal for frameworks (React/Vue/Svelte)
+   * or when using a pre-created WebGL canvas.
+   */
+  preserveCanvas?: boolean;
+
+  /** Alias for preserveCanvas. */
+  useExistingCanvas?: boolean;
 
   /** Core ID or 'auto' to detect by ROM file extension. */
   core?: string;
@@ -135,6 +145,15 @@ export interface GameLoadOptions {
 
   /** Alias for coresDirectory. */
   assetBaseUrl?: string;
+
+  /** Target canvas element to render into. Overrides or sets canvas for this game. */
+  canvas?: HTMLCanvasElement;
+
+  /** When true, preserves and reuses the existing canvas without DOM node replacement. */
+  preserveCanvas?: boolean;
+
+  /** Alias for preserveCanvas. */
+  useExistingCanvas?: boolean;
 }
 
 export interface AchievementDefinition {

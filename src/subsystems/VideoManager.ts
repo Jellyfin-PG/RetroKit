@@ -76,7 +76,7 @@ export class VideoManager implements IVideoManager {
 
   public updateLayout(): void {
     const canvas = this._getCanvas();
-    if (!canvas) return;
+    if (!canvas || !canvas.style) return;
 
     // Attach ResizeObserver to canvas parent if not already attached
     if (

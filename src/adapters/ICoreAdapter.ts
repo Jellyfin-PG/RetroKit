@@ -32,6 +32,7 @@ export interface ICoreAdapter {
 
   // Configuration
   setCoresDirectory?(directory: string): void;
+  setCanvas?(canvas: HTMLCanvasElement): void;
 
   // Lifecycle
   init(context: AdapterContext): Promise<void>;

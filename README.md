@@ -90,6 +90,30 @@ await emu.load(romBuffer, {
 await emu.play();
 ```
 
+## Canvas Integration and Existing WebGL Canvases
+
+RetroKit can create its own canvas handling or bind directly to an existing canvas element (such as an existing WebGL canvas, a Three.js scene, or a React, Vue, or Svelte ref).
+
+To reuse an existing canvas and prevent RetroKit from replacing the DOM node when switching cores or rebooting, set `preserveCanvas: true` or `useExistingCanvas: true`:
+
+```typescript
+// Initialize with an existing canvas
+const emu = new RetroKit({
+  canvas: existingCanvas,
+  preserveCanvas: true, // or useExistingCanvas: true
+});
+
+// Canvas is also optional at startup and can be bound later
+emu.setCanvas(existingCanvas, { useExistingCanvas: true });
+
+// Or specify per game during load
+await emu.load(romBuffer, {
+  fileName: 'game.gba',
+  canvas: existingCanvas,
+  preserveCanvas: true,
+});
+```
+
 ## Input System
 
 RetroKit is completely headless and provides two input channels that work simultaneously:

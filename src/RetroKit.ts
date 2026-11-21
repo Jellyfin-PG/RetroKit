@@ -92,7 +92,7 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     // Instantiate Subsystem Managers
     this.video = new VideoManager(
       () => this._adapter,
-      () => this._config.canvas,
+      () => this._config.canvas || null,
     );
 
     this.state = new StateManager(
@@ -157,6 +157,21 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
   ): Promise<void> {
     this._activeRom = rom;
     this._lastLoadOptions = options;
+
+    if (options?.canvas) {
+      this._config.canvas = options.canvas;
+    }
+    if (options?.preserveCanvas !== undefined) {
+      this._config.preserveCanvas = options.preserveCanvas;
+    } else if (options?.useExistingCanvas !== undefined) {
+      this._config.preserveCanvas = options.useExistingCanvas;
+    }
+
+    if (!this._config.canvas) {
+      throw new Error(
+        '[RetroKit] No canvas provided. Pass a canvas in constructor, load options, or via setCanvas().',
+      );
+    }
 
     const gameId =
       options?.gameId ||
@@ -393,6 +408,34 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
   }
 
   /**
+   * Binds or updates the rendering canvas element.
+   *
+   * @param canvas The target HTML5 Canvas element (can be an existing WebGL canvas).
+   * @param options.preserveCanvas When true, reuses this canvas without replacing its DOM node.
+   * @param options.useExistingCanvas Alias for preserveCanvas.
+   */
+  public setCanvas(
+    canvas: HTMLCanvasElement,
+    options?: { preserveCanvas?: boolean; useExistingCanvas?: boolean },
+  ): void {
+    this._config.canvas = canvas;
+    if (options?.preserveCanvas !== undefined) {
+      this._config.preserveCanvas = options.preserveCanvas;
+    } else if (options?.useExistingCanvas !== undefined) {
+      this._config.preserveCanvas = options.useExistingCanvas;
+    }
+    this._adapter?.setCanvas?.(canvas);
+    (this.video as any).updateLayout?.();
+  }
+
+  /**
+   * Returns the currently bound canvas element, if any.
+   */
+  public get canvas(): HTMLCanvasElement | undefined {
+    return this._config.canvas;
+  }
+
+  /**
    * Updates the active target platform hint for subsequent game launches.
    */
   public setSystem(system: string | undefined): void {
@@ -559,14 +602,23 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
   /**
    * Replaces the canvas DOM element with a clean canvas surface to prevent
    * WebGL, WebGL2, or 2D context collisions when switching emulator cores.
+   * If preserveCanvas or useExistingCanvas is enabled, preserves the existing
+   * canvas element and clears its frame buffer instead of replacing the DOM node.
    */
   private _resetCanvas(): HTMLCanvasElement | null {
     const oldCanvas = this._config.canvas;
+    const shouldPreserve =
+      this._config.preserveCanvas || this._config.useExistingCanvas;
+
     if (
       !oldCanvas ||
       typeof document === 'undefined' ||
-      !oldCanvas.parentNode
+      !oldCanvas.parentNode ||
+      shouldPreserve
     ) {
+      if (oldCanvas) {
+        this.video.clear();
+      }
       return oldCanvas || null;
     }
 

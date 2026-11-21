@@ -30,6 +30,12 @@ export abstract class BaseCoreBridge implements ICoreAdapter {
     }
   }
 
+  public setCanvas(canvas: HTMLCanvasElement): void {
+    if (this.context) {
+      this.context.canvas = canvas;
+    }
+  }
+
   public abstract loadGame(
     rom: ArrayBuffer | Blob | string | Uint8Array,
     options?: GameLoadOptions,

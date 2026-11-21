@@ -56,7 +56,9 @@ const emu = new RetroKit(config: RetroKitConfig);
 
 | Option | Type | Required | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `canvas` | `HTMLCanvasElement` | Yes | N/A | Target HTML5 Canvas element for video output. |
+| `canvas` | `HTMLCanvasElement` | No | `undefined` | Target HTML5 Canvas element for video output. Optional if provided via `setCanvas()` or `load()`. |
+| `preserveCanvas` | `boolean` | No | `false` | When true, reuses an existing canvas or WebGL canvas without replacing the DOM node during core reboots. |
+| `useExistingCanvas` | `boolean` | No | `false` | Alias for `preserveCanvas`. |
 | `assetBaseUrl` | `string` | No | `'/cores'` | Initial base URL or directory path for core WASM and JS binaries. |
 | `core` | `string` | No | Auto | Preferred core ID override (e.g. `'snes9x'`, `'ppsspp'`). |
 | `system` | `string` | No | Auto | Target console/platform identifier (e.g. `'ps1'`, `'snes'`). |
@@ -64,6 +66,36 @@ const emu = new RetroKit(config: RetroKitConfig);
 | `fetchHeaders` | `Record<string, string>` | No | `{}` | HTTP request headers passed when fetching ROMs or core assets. |
 | `debug` | `boolean` | No | `false` | Enables verbose diagnostics and engine logging. |
 | `retroAchievements` | `object` | No | N/A | Pre-configured RetroAchievements login credentials. |
+
+---
+
+### Canvas Management and Existing WebGL Canvases
+
+Frontends frequently manage their own canvas DOM elements inside UI framework component lifecycles (such as React `useRef`, Vue `ref`, or Svelte `bind:this`) or render inside an existing WebGL surface.
+
+RetroKit fully supports binding existing canvases, reusing them without DOM node replacement, and clearing WebGL framebuffers safely:
+
+#### `emu.setCanvas(canvas: HTMLCanvasElement, options?: { preserveCanvas?: boolean; useExistingCanvas?: boolean }): void`
+Binds or updates the rendering canvas element at runtime.
+- **canvas**: Target HTML5 Canvas element (compatible with standard 2D and existing WebGL canvases).
+- **options.preserveCanvas**: When true, prevents RetroKit from replacing the canvas DOM element with a new canvas during core restarts or game switches.
+- **options.useExistingCanvas**: Alias for `preserveCanvas`.
+
+```ts
+const existingCanvas = document.getElementById('my-webgl-canvas') as HTMLCanvasElement;
+
+// Bind canvas with DOM preservation enabled
+emu.setCanvas(existingCanvas, { useExistingCanvas: true });
+```
+
+#### `emu.canvas: HTMLCanvasElement | undefined` (Getter)
+Returns the currently bound canvas element.
+
+```ts
+if (emu.canvas) {
+  console.log('Rendering on canvas dimensions:', emu.canvas.width, emu.canvas.height);
+}
+```
 
 ---
 
@@ -130,6 +162,9 @@ await emu.load(romBuffer, {
 | `core` | `string` | Forces a specific core identifier rather than auto-resolving from the file. |
 | `coresDirectory` | `string` | Per-load override for the cores directory or asset base URL. |
 | `assetBaseUrl` | `string` | Alias for `coresDirectory`. |
+| `canvas` | `HTMLCanvasElement` | Target canvas element to render into. Overrides or binds canvas for this game. |
+| `preserveCanvas` | `boolean` | When true, preserves and reuses the existing canvas without DOM node replacement. |
+| `useExistingCanvas` | `boolean` | Alias for `preserveCanvas`. |
 | `gameId` | `string` | Unique identifier for state slot scoping and SRAM persistence. |
 | `initialSram` | `Uint8Array \| Record<string, Uint8Array>` | Existing save data or memory card files to pre-populate. |
 | `initialStateSlot` | `number` | Save state slot index (0 to 9) to restore immediately after booting. |
