@@ -28,6 +28,10 @@ export default defineConfig({
     minify: 'esbuild',
   },
   server: {
+    fs: {
+      strict: false,
+      allow: ['..'],
+    },
     watch: {
       ignored: [
         '**/Little-Bookbinder/**',
