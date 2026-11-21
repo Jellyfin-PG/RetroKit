@@ -30,6 +30,9 @@ export interface ICoreAdapter {
   readonly system: string;
   readonly capabilities: CoreCapabilities;
 
+  // Configuration
+  setCoresDirectory?(directory: string): void;
+
   // Lifecycle
   init(context: AdapterContext): Promise<void>;
   loadGame(

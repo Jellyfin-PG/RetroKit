@@ -267,10 +267,16 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     // Instantiate appropriate Core Bridge
     this._adapter = this._createAdapter(coreMeta);
 
+    const effectiveAssetBaseUrl =
+      options?.coresDirectory ||
+      options?.assetBaseUrl ||
+      this._config.assetBaseUrl ||
+      '/cores';
+
     // Initialize adapter with environment context
     await this._adapter.init({
       canvas: this._config.canvas,
-      assetBaseUrl: this._config.assetBaseUrl || '/cores',
+      assetBaseUrl: effectiveAssetBaseUrl,
       audioContext: this._audioCtx,
       fetchHeaders: this._config.fetchHeaders,
       debug: this._config.debug,
@@ -336,6 +342,54 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     this._isPaused = false;
     this.video.clear();
     this.emit('stop');
+  }
+
+  /**
+   * Sets the base directory or URL where emulator core binaries and runtime assets are located.
+   * Updates internal configuration and the active adapter context.
+   *
+   * @param directory Base URL or directory path (e.g. '/cores', 'https://cdn.example.com/cores')
+   */
+  public setCoresDirectory(directory: string): void {
+    this._config.assetBaseUrl = directory;
+    this._adapter?.setCoresDirectory?.(directory);
+  }
+
+  /**
+   * Alias for setCoresDirectory.
+   *
+   * @param url Base URL or directory path
+   */
+  public setAssetBaseUrl(url: string): void {
+    this.setCoresDirectory(url);
+  }
+
+  /**
+   * Returns the currently configured cores directory or asset base URL.
+   */
+  public getCoresDirectory(): string {
+    return this._config.assetBaseUrl || '/cores';
+  }
+
+  /**
+   * Returns the currently configured cores directory or asset base URL.
+   */
+  public get coresDirectory(): string {
+    return this.getCoresDirectory();
+  }
+
+  /**
+   * Alias for getCoresDirectory.
+   */
+  public getAssetBaseUrl(): string {
+    return this.getCoresDirectory();
+  }
+
+  /**
+   * Alias for coresDirectory.
+   */
+  public get assetBaseUrl(): string {
+    return this.getCoresDirectory();
   }
 
   /**

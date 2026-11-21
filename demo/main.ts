@@ -35,7 +35,7 @@ const emu = new RetroKit({
 
 assetUrlInput?.addEventListener('input', () => {
   if (assetUrlInput.value) {
-    (emu as any)._config.assetBaseUrl = assetUrlInput.value;
+    emu.setCoresDirectory(assetUrlInput.value);
   }
 });
 

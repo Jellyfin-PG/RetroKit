@@ -161,6 +161,31 @@ emu.on('achievementUnlocked', (cheevo) => {
 });
 ```
 
+## Cores Directory Configuration
+
+Frontends can configure or dynamically switch the base URL or folder path where emulator core WebAssembly binaries and runtime assets are hosted:
+
+```typescript
+// Configure cores directory at runtime
+emu.setCoresDirectory('https://cdn.example.com/cores');
+
+// Or read current active directory
+console.log('Active cores directory:', emu.coresDirectory);
+```
+
+You can also pass `coresDirectory` per game in `load()` options:
+
+```typescript
+await emu.load(romBuffer, {
+  fileName: 'game.gba',
+  coresDirectory: '/my-custom-cores',
+});
+```
+
+## Complete API Documentation
+
+For exhaustive documentation of all 14 subsystem managers, method signatures, parameters, return types, events, and configuration options, see the [Frontend API Reference](API.md).
+
 ## Development and Build
 
 ```bash

@@ -129,6 +129,12 @@ export interface GameLoadOptions {
   bios?:
     | Record<string, Uint8Array | ArrayBuffer>
     | Array<{ name: string; data: Uint8Array }>;
+
+  /** Base URL or directory path for loading core WASM/JS binaries and data assets. Overrides RetroKitConfig. */
+  coresDirectory?: string;
+
+  /** Alias for coresDirectory. */
+  assetBaseUrl?: string;
 }
 
 export interface AchievementDefinition {

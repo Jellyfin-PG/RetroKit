@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { CoreRegistry, SramManager, InputManager } = require('../dist/retrokit.umd.cjs');
+const { CoreRegistry, SramManager, InputManager, RetroKit } = require('../dist/retrokit.umd.cjs');
 
 test('CoreRegistry has all expected cores and systems', () => {
   const allCores = CoreRegistry.getAllCores();
@@ -49,3 +49,22 @@ test('InputManager initializes standard players and hotkeys', () => {
   assert.throws(() => input.player(4), /Invalid player index/);
   input.destroy();
 });
+
+test('RetroKit setCoresDirectory and coresDirectory methods', () => {
+  const emu = new RetroKit({
+    canvas: {},
+    assetBaseUrl: '/initial-cores',
+  });
+  assert.equal(emu.coresDirectory, '/initial-cores');
+  assert.equal(emu.assetBaseUrl, '/initial-cores');
+  assert.equal(emu.getCoresDirectory(), '/initial-cores');
+  assert.equal(emu.getAssetBaseUrl(), '/initial-cores');
+
+  emu.setCoresDirectory('/custom/cdn/cores');
+  assert.equal(emu.coresDirectory, '/custom/cdn/cores');
+  assert.equal(emu.assetBaseUrl, '/custom/cdn/cores');
+
+  emu.setAssetBaseUrl('https://cores.example.com');
+  assert.equal(emu.coresDirectory, 'https://cores.example.com');
+});
+

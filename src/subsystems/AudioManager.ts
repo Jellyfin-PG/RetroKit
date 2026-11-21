@@ -19,9 +19,21 @@ export class AudioManager implements IAudioManager {
     private readonly _ctx: AudioContext,
     private readonly _getAdapter: () => ICoreAdapter | null,
   ) {
-    this._masterGain = this._ctx.createGain();
-    this._masterGain.gain.value = this._volume;
-    this._masterGain.connect(this._ctx.destination);
+    if (this._ctx && typeof this._ctx.createGain === 'function') {
+      this._masterGain = this._ctx.createGain();
+      this._masterGain.gain.value = this._volume;
+      if (this._ctx.destination) {
+        this._masterGain.connect(this._ctx.destination);
+      }
+    } else {
+      this._masterGain = {
+        gain: {
+          value: this._volume,
+          setValueAtTime: () => {},
+        },
+        connect: () => {},
+      } as any;
+    }
   }
 
   public getVolume(): number {

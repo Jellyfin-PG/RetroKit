@@ -24,6 +24,12 @@ export abstract class BaseCoreBridge implements ICoreAdapter {
     this.context = context;
   }
 
+  public setCoresDirectory(directory: string): void {
+    if (this.context) {
+      this.context.assetBaseUrl = directory;
+    }
+  }
+
   public abstract loadGame(
     rom: ArrayBuffer | Blob | string | Uint8Array,
     options?: GameLoadOptions,
