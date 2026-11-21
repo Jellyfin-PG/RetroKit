@@ -50,7 +50,7 @@ test('InputManager initializes standard players and hotkeys', () => {
   input.destroy();
 });
 
-test('RetroKit setCoresDirectory and coresDirectory methods', () => {
+test('RetroKit setCoresDirectory and coresDirectory methods', async () => {
   const emu = new RetroKit({
     canvas: {},
     assetBaseUrl: '/initial-cores',
@@ -66,9 +66,10 @@ test('RetroKit setCoresDirectory and coresDirectory methods', () => {
 
   emu.setAssetBaseUrl('https://cores.example.com');
   assert.equal(emu.coresDirectory, 'https://cores.example.com');
+  await emu.destroy();
 });
 
-test('RetroKit supports existing canvas and setCanvas', () => {
+test('RetroKit supports existing canvas and setCanvas', async () => {
   const emu = new RetroKit({
     preserveCanvas: true,
   });
@@ -78,6 +79,7 @@ test('RetroKit supports existing canvas and setCanvas', () => {
   emu.setCanvas(mockCanvas, { useExistingCanvas: true });
   assert.equal(emu.canvas, mockCanvas);
   assert.equal(emu.canvas.id, 'existing-gl-canvas');
+  await emu.destroy();
 });
 
 

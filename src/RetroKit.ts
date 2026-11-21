@@ -489,12 +489,16 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
 
   private _startFpsMonitoring(): void {
     if (this._fpsTimer) clearInterval(this._fpsTimer);
-    this._fpsTimer = setInterval(() => {
+    const timer = setInterval(() => {
       if (this._isRunning && !this._isPaused && this._adapter) {
         const fps = this._adapter.rawGetFps() || 60;
         this.emit('fps', { fps });
       }
     }, 1000);
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer) {
+      (timer as any).unref();
+    }
+    this._fpsTimer = timer;
   }
 
   public async dispose(): Promise<void> {
