@@ -774,6 +774,18 @@ export class LibretroAdapter extends BaseCoreBridge {
         3: { key: 'Enter', code: 'Enter', keyCode: 13 }, // Start
         10: { key: 'q', code: 'KeyQ', keyCode: 81 }, // L
         11: { key: 'w', code: 'KeyW', keyCode: 87 }, // R
+        12: { key: '1', code: 'Digit1', keyCode: 49 }, // L2
+        13: { key: '2', code: 'Digit2', keyCode: 50 }, // R2
+        14: { key: '3', code: 'Digit3', keyCode: 51 }, // L3
+        15: { key: '4', code: 'Digit4', keyCode: 52 }, // R3
+        200: { key: 'j', code: 'KeyJ', keyCode: 74 }, // L_STICK_LEFT
+        201: { key: 'l', code: 'KeyL', keyCode: 76 }, // L_STICK_RIGHT
+        202: { key: 'i', code: 'KeyI', keyCode: 73 }, // L_STICK_UP
+        203: { key: 'k', code: 'KeyK', keyCode: 75 }, // L_STICK_DOWN
+        204: { key: 'f', code: 'KeyF', keyCode: 70 }, // R_STICK_LEFT
+        205: { key: 'g', code: 'KeyG', keyCode: 71 }, // R_STICK_RIGHT
+        206: { key: 't', code: 'KeyT', keyCode: 84 }, // R_STICK_UP
+        207: { key: 'b', code: 'KeyB', keyCode: 66 }, // R_STICK_DOWN
         100: { key: 'h', code: 'KeyH', keyCode: 72 }, // Reset
         101: { key: 'F2', code: 'F2', keyCode: 113 }, // Save State
         102: { key: 'F4', code: 'F4', keyCode: 115 }, // Load State
@@ -808,6 +820,10 @@ export class LibretroAdapter extends BaseCoreBridge {
     right: false,
     up: false,
     down: false,
+    rLeft: false,
+    rRight: false,
+    rUp: false,
+    rDown: false,
   };
 
   public override rawSendAxis(
@@ -879,29 +895,52 @@ export class LibretroAdapter extends BaseCoreBridge {
         ); // UP
       }
     } else if (player === 0) {
-      // Analog-to-D-Pad keyboard fallback for RetroArch Web Player
+      // Analog-to-keyboard fallback for RetroArch Web Player
       const threshold = 0.5;
+      const isAnalogCore = this.id === 'pcsx_rearmed';
       if (axisId === 0) {
         const left = value < -threshold;
         const right = value > threshold;
         if (left !== this._fallbackAxisDirs.left) {
           this._fallbackAxisDirs.left = left;
-          this._dispatchKeyboardFallback(6, left);
+          this._dispatchKeyboardFallback(isAnalogCore ? 200 : 6, left);
         }
         if (right !== this._fallbackAxisDirs.right) {
           this._fallbackAxisDirs.right = right;
-          this._dispatchKeyboardFallback(7, right);
+          this._dispatchKeyboardFallback(isAnalogCore ? 201 : 7, right);
         }
       } else if (axisId === 1) {
         const up = value < -threshold;
         const down = value > threshold;
         if (up !== this._fallbackAxisDirs.up) {
           this._fallbackAxisDirs.up = up;
-          this._dispatchKeyboardFallback(4, up);
+          this._dispatchKeyboardFallback(isAnalogCore ? 202 : 4, up);
         }
         if (down !== this._fallbackAxisDirs.down) {
           this._fallbackAxisDirs.down = down;
-          this._dispatchKeyboardFallback(5, down);
+          this._dispatchKeyboardFallback(isAnalogCore ? 203 : 5, down);
+        }
+      } else if (axisId === 2) {
+        const rLeft = value < -threshold;
+        const rRight = value > threshold;
+        if (rLeft !== this._fallbackAxisDirs.rLeft) {
+          this._fallbackAxisDirs.rLeft = rLeft;
+          this._dispatchKeyboardFallback(204, rLeft);
+        }
+        if (rRight !== this._fallbackAxisDirs.rRight) {
+          this._fallbackAxisDirs.rRight = rRight;
+          this._dispatchKeyboardFallback(205, rRight);
+        }
+      } else if (axisId === 3) {
+        const rUp = value < -threshold;
+        const rDown = value > threshold;
+        if (rUp !== this._fallbackAxisDirs.rUp) {
+          this._fallbackAxisDirs.rUp = rUp;
+          this._dispatchKeyboardFallback(206, rUp);
+        }
+        if (rDown !== this._fallbackAxisDirs.rDown) {
+          this._fallbackAxisDirs.rDown = rDown;
+          this._dispatchKeyboardFallback(207, rDown);
         }
       }
     }
@@ -1069,6 +1108,21 @@ export class LibretroAdapter extends BaseCoreBridge {
               'input_save_state = "f2"',
               'input_load_state = "f4"',
               'input_reset = "h"',
+              'input_player1_l2 = "1"',
+              'input_player1_r2 = "2"',
+              'input_player1_l3 = "3"',
+              'input_player1_r3 = "4"',
+              'input_player1_l_x_minus = "j"',
+              'input_player1_l_x_plus = "l"',
+              'input_player1_l_y_minus = "i"',
+              'input_player1_l_y_plus = "k"',
+              'input_player1_r_x_minus = "f"',
+              'input_player1_r_x_plus = "g"',
+              'input_player1_r_y_minus = "t"',
+              'input_player1_r_y_plus = "b"',
+              ...(this.id === 'pcsx_rearmed'
+                ? ['input_libretro_device_p1 = "5"']
+                : []),
               'network_cmd_enable = "true"',
               'stdin_cmd_enable = "false"',
               'bundle_assets_extract_enable = "false"',
