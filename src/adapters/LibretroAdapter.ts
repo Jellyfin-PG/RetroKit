@@ -729,7 +729,7 @@ export class LibretroAdapter extends BaseCoreBridge {
       this._module.gameManager.simulateInput(player, buttonId, pressed ? 1 : 0);
     } else if (this._module?.simulateGamepadButton) {
       this._module.simulateGamepadButton(player, buttonId, pressed);
-    } else {
+    } else if (player === 0) {
       // Direct DOM KeyboardEvent fallback for RetroArch Web Player
       this._dispatchKeyboardFallback(buttonId, pressed);
     }
@@ -787,19 +787,28 @@ export class LibretroAdapter extends BaseCoreBridge {
           code: def.code,
           keyCode: def.keyCode,
           which: def.keyCode,
-          bubbles: false,
+          bubbles: true,
           cancelable: true,
         });
         (event as any)._isRetroKitSynthetic = true;
 
-        if (this.context?.canvas) {
-          this.context.canvas.dispatchEvent(event);
-        }
+        const target =
+          this.context?.canvas && this.context.canvas.isConnected
+            ? this.context.canvas
+            : document;
+        target.dispatchEvent(event);
       }
     } finally {
       this._isDispatchingFallback = false;
     }
   }
+
+  private _fallbackAxisDirs = {
+    left: false,
+    right: false,
+    up: false,
+    down: false,
+  };
 
   public override rawSendAxis(
     player: number,
@@ -868,6 +877,32 @@ export class LibretroAdapter extends BaseCoreBridge {
           23,
           value < -deadzone ? intVal : 0,
         ); // UP
+      }
+    } else if (player === 0) {
+      // Analog-to-D-Pad keyboard fallback for RetroArch Web Player
+      const threshold = 0.5;
+      if (axisId === 0) {
+        const left = value < -threshold;
+        const right = value > threshold;
+        if (left !== this._fallbackAxisDirs.left) {
+          this._fallbackAxisDirs.left = left;
+          this._dispatchKeyboardFallback(6, left);
+        }
+        if (right !== this._fallbackAxisDirs.right) {
+          this._fallbackAxisDirs.right = right;
+          this._dispatchKeyboardFallback(7, right);
+        }
+      } else if (axisId === 1) {
+        const up = value < -threshold;
+        const down = value > threshold;
+        if (up !== this._fallbackAxisDirs.up) {
+          this._fallbackAxisDirs.up = up;
+          this._dispatchKeyboardFallback(4, up);
+        }
+        if (down !== this._fallbackAxisDirs.down) {
+          this._fallbackAxisDirs.down = down;
+          this._dispatchKeyboardFallback(5, down);
+        }
       }
     }
   }

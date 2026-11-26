@@ -34,6 +34,7 @@ export class InputManager implements IInputManager {
   private _pollRaf: number | null = null;
   private _onKeyDownRef: (e: KeyboardEvent) => void;
   private _onKeyUpRef: (e: KeyboardEvent) => void;
+  private _onGamepadConnectedRef: () => void;
 
   constructor(
     private readonly _getAdapter: () => ICoreAdapter | null,
@@ -45,10 +46,13 @@ export class InputManager implements IInputManager {
 
     this._onKeyDownRef = this._handleKeyDown.bind(this);
     this._onKeyUpRef = this._handleKeyUp.bind(this);
+    this._onGamepadConnectedRef = () => this.autoAssignGamepads();
 
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this._onKeyDownRef, true);
       window.addEventListener('keyup', this._onKeyUpRef, true);
+      window.addEventListener('gamepadconnected', this._onGamepadConnectedRef);
+      this.autoAssignGamepads();
       this._startGamepadLoop();
     }
   }
@@ -141,6 +145,10 @@ export class InputManager implements IInputManager {
     if (typeof window !== 'undefined') {
       window.removeEventListener('keydown', this._onKeyDownRef, true);
       window.removeEventListener('keyup', this._onKeyUpRef, true);
+      window.removeEventListener(
+        'gamepadconnected',
+        this._onGamepadConnectedRef,
+      );
     }
   }
 
