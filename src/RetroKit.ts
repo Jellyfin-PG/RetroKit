@@ -285,6 +285,7 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     const effectiveAssetBaseUrl =
       options?.coresDirectory ||
       options?.assetBaseUrl ||
+      this._config.assetPaths?.[coreMeta.family] ||
       this._config.assetBaseUrl ||
       '/cores';
 
@@ -292,6 +293,7 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
     await this._adapter.init({
       canvas: this._config.canvas,
       assetBaseUrl: effectiveAssetBaseUrl,
+      assetPaths: this._config.assetPaths,
       audioContext: this._audioCtx,
       fetchHeaders: this._config.fetchHeaders,
       debug: this._config.debug,

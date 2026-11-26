@@ -410,9 +410,12 @@ export class PlayAdapter extends BaseCoreBridge {
   }
 
   private async _instantiatePlayRuntime(): Promise<void> {
-    const baseUrl = this.context?.assetBaseUrl?.includes('play-cores')
-      ? this.context.assetBaseUrl
-      : '/play-cores';
+    const configured =
+      this.context?.assetPaths?.play || this.context?.assetBaseUrl;
+    const baseUrl =
+      configured && !configured.includes('libretro') && configured !== '/cores'
+        ? configured
+        : '/play-cores';
     const playJsUrl = `${baseUrl.replace(/\/$/, '')}/Play.js`;
 
     // Play! WebAssembly core hardcodes #outputCanvas as its WebGL rendering target

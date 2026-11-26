@@ -1,4 +1,5 @@
 import type {
+  CoreAssetPaths,
   CoreCapabilities,
   CoreOptionDefinition,
   GameLoadOptions,
@@ -7,6 +8,7 @@ import type {
 export interface AdapterContext {
   canvas: HTMLCanvasElement;
   assetBaseUrl: string;
+  assetPaths?: CoreAssetPaths;
   audioContext: AudioContext;
   fetchHeaders?: Record<string, string>;
   debug?: boolean;

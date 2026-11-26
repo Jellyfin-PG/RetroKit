@@ -469,10 +469,17 @@ export class LoveAdapter extends BaseCoreBridge {
       'info',
     );
 
-    const primaryJsUrl = '/love-cores/love.js';
+    const configured =
+      this.context?.assetPaths?.love || this.context?.assetBaseUrl;
+    const customBase =
+      configured && !configured.includes('libretro') && configured !== '/cores'
+        ? configured.replace(/\/$/, '')
+        : '/love-cores';
+
+    const primaryJsUrl = `${customBase}/love.js`;
     const fallbackJsUrl =
       'https://cdn.jsdelivr.net/gh/2dengine/love.js@main/11.5/love.js';
-    const primaryWasmUrl = '/love-cores/love.wasm';
+    const primaryWasmUrl = `${customBase}/love.wasm`;
     const fallbackWasmUrl =
       'https://cdn.jsdelivr.net/gh/2dengine/love.js@main/11.5/love.wasm';
 

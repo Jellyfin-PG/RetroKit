@@ -259,13 +259,14 @@ export class LibretroAdapter extends BaseCoreBridge {
         } catch (_) {}
       }
 
-      // Trigger save state exactly once
+      // Trigger save state using standard RetroArch command (with state_slot config if > 0)
       if (
         typeof this._module.EmscriptenSendCommand === 'function' ||
         typeof this._module.ccall === 'function'
       ) {
-        const cmd = slot > 0 ? `SAVE_STATE_SLOT ${slot}` : 'SAVE_STATE';
-        this._sendCommand(cmd);
+        const slotIndex = Math.max(0, slot);
+        this._sendCommand(`SET_CONFIG_PARAM state_slot ${slotIndex}`);
+        this._sendCommand('SAVE_STATE');
       } else {
         // Fallback to keyboard hotkey only if command interface is not exposed
         this._dispatchKeyboardFallback(101, true); // F2
@@ -360,13 +361,14 @@ export class LibretroAdapter extends BaseCoreBridge {
           } catch (_) {}
         }
 
-        // Trigger load state exactly once
+        // Trigger load state using standard RetroArch command
         if (
           typeof this._module.EmscriptenSendCommand === 'function' ||
           typeof this._module.ccall === 'function'
         ) {
-          const cmd = slot > 0 ? `LOAD_STATE_SLOT ${slot}` : 'LOAD_STATE';
-          this._sendCommand(cmd);
+          const slotIndex = Math.max(0, slot);
+          this._sendCommand(`SET_CONFIG_PARAM state_slot ${slotIndex}`);
+          this._sendCommand('LOAD_STATE');
         } else {
           // Fallback to keyboard hotkey only if command interface is not exposed
           this._dispatchKeyboardFallback(102, true); // F4

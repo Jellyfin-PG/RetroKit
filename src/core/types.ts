@@ -50,6 +50,18 @@ export interface CoreMetadata {
 }
 
 /**
+ * Per-engine base URL overrides for loading runtime binaries and assets.
+ */
+export interface CoreAssetPaths {
+  libretro?: string;
+  play?: string;
+  pico8?: string;
+  love?: string;
+  ruffle?: string;
+  emulatorjs?: string;
+}
+
+/**
  * Initialization configuration for RetroKit.
  */
 export interface RetroKitConfig {
@@ -74,6 +86,9 @@ export interface RetroKitConfig {
 
   /** Base URL for loading core WASM/JS binaries and data assets. */
   assetBaseUrl?: string;
+
+  /** Per-engine/adapter base URL overrides (takes precedence over assetBaseUrl for matching adapter). */
+  assetPaths?: CoreAssetPaths;
 
   /** Custom AudioContext, or automatically creates one. */
   audioContext?: AudioContext;

@@ -558,9 +558,12 @@ export class Pico8Adapter extends BaseCoreBridge {
 
     win.Module = moduleObj;
 
-    const baseUrl = this.context?.assetBaseUrl?.includes('pico8')
-      ? this.context.assetBaseUrl
-      : '/pico8';
+    const configured =
+      this.context?.assetPaths?.pico8 || this.context?.assetBaseUrl;
+    const baseUrl =
+      configured && !configured.includes('libretro') && configured !== '/cores'
+        ? configured
+        : '/pico8';
     const scriptUrl = baseUrl.endsWith('.js')
       ? baseUrl
       : `${baseUrl.replace(/\/$/, '')}/pico8.js`;

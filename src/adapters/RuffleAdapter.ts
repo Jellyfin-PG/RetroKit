@@ -199,7 +199,8 @@ export class RuffleAdapter extends BaseCoreBridge {
   }
 
   private async _instantiateRuffle(): Promise<void> {
-    const baseUrl = this.context?.assetBaseUrl || '';
+    const baseUrl =
+      this.context?.assetPaths?.ruffle || this.context?.assetBaseUrl || '';
     const ruffleJsUrl = `${baseUrl.replace(/\/$/, '')}/ruffle.js`;
 
     if (!(window as any).RufflePlayer) {
