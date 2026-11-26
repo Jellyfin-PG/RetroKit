@@ -1036,6 +1036,7 @@ export class LibretroAdapter extends BaseCoreBridge {
               'input_reset = "h"',
               'network_cmd_enable = "true"',
               'stdin_cmd_enable = "false"',
+              'bundle_assets_extract_enable = "false"',
               '',
             ].join('\n');
 
