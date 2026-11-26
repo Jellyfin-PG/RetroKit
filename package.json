@@ -1,6 +1,6 @@
 {
   "name": "@grimmdev/retrokit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Unified, headless WebAssembly emulation runtime supporting Libretro (EmulatorJS & web.libretro.com), Play! PS2, and Adobe Flash (Ruffle).",
   "type": "module",
   "main": "./dist/retrokit.umd.cjs",
