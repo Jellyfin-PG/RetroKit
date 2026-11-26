@@ -565,31 +565,49 @@ export class LibretroAdapter extends BaseCoreBridge {
     }
 
     if (this._module?.FS) {
-      const cfgPath =
-        '/home/web_user/retroarch/userdata/retroarch-core-options.cfg';
-      try {
-        let lines: string[] = [];
-        if (this._module.FS.analyzePath(cfgPath).exists) {
-          const text: string = this._module.FS.readFile(cfgPath, {
-            encoding: 'utf8',
-          });
-          lines = text.split('\n');
-        }
-        let updated = false;
-        const newLine = `${key} = "${value}"`;
-        lines = lines.map((line) => {
-          if (
-            line.trim().startsWith(`${key} `) ||
-            line.trim().startsWith(`${key}=`)
-          ) {
-            updated = true;
-            return newLine;
+      const cfgPaths = [
+        '/home/web_user/retroarch/userdata/retroarch-core-options.cfg',
+        '/home/web_user/retroarch/userdata/config/retroarch-core-options.cfg',
+      ];
+      let wrote = false;
+      for (const cfgPath of cfgPaths) {
+        const isPrimary = cfgPath.endsWith(
+          'userdata/retroarch-core-options.cfg',
+        );
+        try {
+          if (!isPrimary && !this._module.FS.analyzePath(cfgPath).exists) {
+            continue;
           }
-          return line;
-        });
-        if (!updated) lines.push(newLine);
-        this._module.FS.writeFile(cfgPath, lines.join('\n'));
-      } catch (_) {}
+          let lines: string[] = [];
+          if (this._module.FS.analyzePath(cfgPath).exists) {
+            const text: string = this._module.FS.readFile(cfgPath, {
+              encoding: 'utf8',
+            });
+            lines = text.split('\n');
+          }
+          let updated = false;
+          const newLine = `${key} = "${value}"`;
+          lines = lines.map((line) => {
+            if (
+              line.trim().startsWith(`${key} `) ||
+              line.trim().startsWith(`${key}=`)
+            ) {
+              updated = true;
+              return newLine;
+            }
+            return line;
+          });
+          if (!updated) lines.push(newLine);
+          this._module.FS.writeFile(cfgPath, lines.join('\n'));
+          wrote = true;
+        } catch (_) {}
+      }
+
+      if (wrote && typeof this._module._cmd_reload_config === 'function') {
+        try {
+          this._module._cmd_reload_config();
+        } catch (_) {}
+      }
     }
   }
 
