@@ -1,3 +1,4 @@
+import { CoreRegistry } from '../core/CoreRegistry';
 import type {
   CoreCapabilities,
   CoreOptionDefinition,
@@ -549,9 +550,6 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
           const isDebug = !!this.context?.debug;
           const args = isDebug ? ['-v', `/${safeName}`] : [`/${safeName}`];
           this._module.callMain(args);
-          if (typeof this._module.resumeMainLoop === 'function') {
-            this._module.resumeMainLoop();
-          }
         } catch (err: any) {
           if (err && err.name !== 'ExitStatus') {
             console.error('[EmulatorJSAdapter] Error starting core:', err);
@@ -570,7 +568,16 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
   public override pause(): void {
     super.pause();
     if (this._module) {
-      if (typeof this._module.pauseMainLoop === 'function') {
+      if (
+        this._module.gameManager &&
+        typeof this._module.gameManager.toggleMainLoop === 'function'
+      ) {
+        this._module.gameManager.toggleMainLoop(0);
+      } else if (typeof this._module._toggleMainLoop === 'function') {
+        try {
+          this._module._toggleMainLoop(0);
+        } catch (_) {}
+      } else if (typeof this._module.pauseMainLoop === 'function') {
         this._module.pauseMainLoop();
       } else if (typeof this._module.EmscriptenSendCommand === 'function') {
         this._module.EmscriptenSendCommand('PAUSE_TOGGLE');
@@ -585,7 +592,16 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
       return;
     }
     if (this._module) {
-      if (typeof this._module.resumeMainLoop === 'function') {
+      if (
+        this._module.gameManager &&
+        typeof this._module.gameManager.toggleMainLoop === 'function'
+      ) {
+        this._module.gameManager.toggleMainLoop(1);
+      } else if (typeof this._module._toggleMainLoop === 'function') {
+        try {
+          this._module._toggleMainLoop(1);
+        } catch (_) {}
+      } else if (typeof this._module.resumeMainLoop === 'function') {
         this._module.resumeMainLoop();
       } else if (typeof this._module.EmscriptenSendCommand === 'function') {
         this._module.EmscriptenSendCommand('PAUSE_TOGGLE');
@@ -602,13 +618,23 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
   }
 
   public override async restart(): Promise<void> {
-    if (this._module) {
-      if (typeof this._module.EmscriptenSendCommand === 'function') {
-        this._module.EmscriptenSendCommand('RESET');
-      } else {
-        this._dispatchKeyboardFallback(100, true);
-        setTimeout(() => this._dispatchKeyboardFallback(100, false), 50);
-      }
+    if (!this._module) return;
+    if (
+      this._module.gameManager &&
+      typeof this._module.gameManager.restart === 'function'
+    ) {
+      this._module.gameManager.restart();
+    } else if (typeof this._module._system_restart === 'function') {
+      try {
+        this._module._system_restart();
+      } catch (_) {}
+    } else if (typeof this._module.EmscriptenSendCommand === 'function') {
+      this._module.EmscriptenSendCommand('RESET');
+    } else {
+      this._dispatchKeyboardFallback(100, true);
+      setTimeout(() => this._dispatchKeyboardFallback(100, false), 50);
+    }
+    if (this.isPausedInternal) {
       this.resume();
     }
   }
@@ -903,7 +929,80 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
 
   // --- Core Options ---
   public override rawGetOptions(): CoreOptionDefinition[] {
+    if (
+      this._module?.gameManager &&
+      typeof this._module.gameManager.getCoreOptions === 'function'
+    ) {
+      try {
+        const raw = this._module.gameManager.getCoreOptions();
+        if (typeof raw === 'string' && raw.trim().length > 0) {
+          return this._parseCoreOptionsString(raw);
+        }
+      } catch (_) {}
+    }
     return [];
+  }
+
+  private _parseCoreOptionsString(raw: string): CoreOptionDefinition[] {
+    const results: CoreOptionDefinition[] = [];
+    const lines = raw.split('\n');
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const parts = line.split(/;\s*/);
+      if (parts.length < 2) continue;
+
+      const [key, curr] = parts[0].split('|');
+      const choices = parts[1]
+        .split('|')
+        .map((c) => ({ value: c.trim(), label: c.trim() }))
+        .filter((c) => c.value.length > 0);
+
+      if (key && choices.length > 0) {
+        const trimmedKey = key.trim();
+        results.push({
+          id: trimmedKey,
+          label: trimmedKey.replace(/^[^_]+_/, '').replace(/_/g, ' '),
+          type: 'enum',
+          choices,
+          defaultValue: choices[0]?.value || '',
+          currentValue:
+            this._coreOptionsMap[trimmedKey] ??
+            (curr?.trim() || choices[0]?.value || ''),
+        });
+      }
+    }
+    return results;
+  }
+
+  public async rawTakeScreenshot(): Promise<Uint8Array | null> {
+    if (!this._module?.FS) return null;
+    try {
+      try {
+        this._module.FS.unlink('/screenshot.png');
+      } catch (_) {}
+
+      const takeFn = this._module.gameManager?.screenshot;
+      if (typeof takeFn === 'function') {
+        takeFn();
+      } else if (typeof this._module._cmd_take_screenshot === 'function') {
+        this._module._cmd_take_screenshot();
+      } else if (typeof this._module.ccall === 'function') {
+        this._module.ccall('cmd_take_screenshot', null, [], []);
+      } else {
+        return null;
+      }
+
+      for (let i = 0; i < 30; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+        try {
+          const stat = this._module.FS.stat('/screenshot.png');
+          if (stat && stat.size > 0) {
+            return new Uint8Array(this._module.FS.readFile('/screenshot.png'));
+          }
+        } catch (_) {}
+      }
+    } catch (_) {}
+    return null;
   }
 
   public override rawSetOption(key: string, value: string): void {
@@ -1084,6 +1183,58 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
     return this._fps;
   }
 
+  private _isFastForward = false;
+  private _isSlowMotion = false;
+
+  public override rawSetSpeed(ratio: number): void {
+    const wantFf = ratio > 1.05;
+    const wantSlow = ratio > 0 && ratio < 0.95;
+
+    if (wantFf !== this._isFastForward) {
+      this._isFastForward = wantFf;
+      if (wantFf) {
+        this._callEjsNumber('set_ff_ratio', ratio);
+      }
+      if (!this._callEjsNumber('toggle_fastforward', wantFf ? 1 : 0)) {
+        this._sendCommand('FAST_FORWARD');
+      }
+    } else if (wantFf) {
+      // Update ratio while already fast-forwarding
+      this._callEjsNumber('set_ff_ratio', ratio);
+    }
+
+    if (wantSlow !== this._isSlowMotion) {
+      this._isSlowMotion = wantSlow;
+      if (wantSlow) {
+        // EmulatorJS slow-motion ratio is a divisor (e.g. 2.0 = half speed, 3.0 = 1/3 speed)
+        const smDivisor = ratio > 0 ? Math.max(1, 1 / ratio) : 2.0;
+        this._callEjsNumber('set_sm_ratio', smDivisor);
+      }
+      if (!this._callEjsNumber('toggle_slow_motion', wantSlow ? 1 : 0)) {
+        this._sendCommand('SLOWMOTION');
+      }
+    } else if (wantSlow) {
+      const smDivisor = ratio > 0 ? Math.max(1, 1 / ratio) : 2.0;
+      this._callEjsNumber('set_sm_ratio', smDivisor);
+    }
+  }
+
+  private _callEjsNumber(fnName: string, arg: number): boolean {
+    if (!this._module) return false;
+    try {
+      const direct = this._module[`_${fnName}`];
+      if (typeof direct === 'function') {
+        direct(arg);
+        return true;
+      }
+      if (typeof this._module.ccall === 'function') {
+        this._module.ccall(fnName, null, ['number'], [arg]);
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
   /**
    * Downloads and unpacks the core binaries, prepares the Emscripten runtime module,
    * injects assets, and boots the virtual environment.
@@ -1138,9 +1289,18 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
     const cfgPath = '/home/web_user/retroarch/userdata/retroarch.cfg';
     const altCfgPath = '/home/web_user/.config/retroarch/retroarch.cfg';
 
+    const isWebGL2Needed = !!CoreRegistry.getCore(this.id)?.needsWebGL2;
+
     const moduleOverrides: any = {
       canvas: this.context?.canvas,
       parent: this.context?.canvas?.parentElement || this.context?.canvas,
+      webglContextAttributes: {
+        preserveDrawingBuffer: true,
+        antialias: false,
+        powerPreference: 'high-performance',
+        majorVersion: isWebGL2Needed ? 2 : 1,
+        minorVersion: 0,
+      },
       wasmBinary: wasmBytes,
       noInitialRun: true,
       arguments: [],
@@ -1319,7 +1479,9 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
           'number',
           'number',
         ]),
+        toggleMainLoop: mod.cwrap('toggleMainLoop', 'null', ['number']),
         getCoreOptions: mod.cwrap('get_core_options', 'string', []),
+        screenshot: mod.cwrap('cmd_take_screenshot', 'null', []),
         setVariable: mod.cwrap('ejs_set_variable', 'null', [
           'string',
           'string',
@@ -1366,9 +1528,26 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
             fn.setVariable?.(key, val);
           } catch (_) {}
         },
+        getCoreOptions: () => {
+          try {
+            return fn.getCoreOptions?.() || '';
+          } catch (_) {
+            return '';
+          }
+        },
+        screenshot: () => {
+          try {
+            fn.screenshot?.();
+          } catch (_) {}
+        },
         restart: () => {
           try {
             fn.restart?.();
+          } catch (_) {}
+        },
+        toggleMainLoop: (playing: number) => {
+          try {
+            fn.toggleMainLoop?.(playing);
           } catch (_) {}
         },
         saveSaveFiles: () => {

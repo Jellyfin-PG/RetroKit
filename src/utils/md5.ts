@@ -72,28 +72,47 @@ function md5ii(
 
 export function md5(data: Uint8Array): string {
   const n = data.length;
-  const words: number[] = [];
-  for (let i = 0; i < n; i++) {
-    words[i >> 2] |= data[i] << ((i % 4) * 8);
-  }
-
-  // Padding
-  words[n >> 2] |= 0x80 << ((n % 4) * 8);
-  words[(((n + 8) >> 6) << 4) + 14] = n * 8;
+  const totalBlocks = Math.floor((n + 8) / 64) + 1;
+  const paddedLen = totalBlocks * 64;
+  const x = new Int32Array(16);
 
   let a = 1732584193;
   let b = -271733879;
   let c = -1732584194;
   let d = 271733878;
 
-  for (let i = 0; i < words.length; i += 16) {
+  for (let offset = 0; offset < paddedLen; offset += 64) {
+    if (offset + 64 <= n) {
+      for (let j = 0; j < 16; j++) {
+        const p = offset + j * 4;
+        x[j] =
+          data[p] |
+          (data[p + 1] << 8) |
+          (data[p + 2] << 16) |
+          (data[p + 3] << 24);
+      }
+    } else {
+      x.fill(0);
+      for (let j = 0; j < 64; j++) {
+        const idx = offset + j;
+        if (idx < n) {
+          x[j >> 2] |= data[idx] << ((j & 3) * 8);
+        } else if (idx === n) {
+          x[j >> 2] |= 0x80 << ((j & 3) * 8);
+          break;
+        }
+      }
+      if (offset + 64 === paddedLen) {
+        const bitLen = n * 8;
+        x[14] = bitLen | 0;
+        x[15] = Math.floor(bitLen / 4294967296) | 0;
+      }
+    }
+
     const olda = a;
     const oldb = b;
     const oldc = c;
     const oldd = d;
-
-    const x = words.slice(i, i + 16);
-    while (x.length < 16) x.push(0);
 
     a = md5ff(a, b, c, d, x[0], 7, -680876936);
     d = md5ff(d, a, b, c, x[1], 12, -389564586);

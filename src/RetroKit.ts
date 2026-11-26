@@ -251,7 +251,12 @@ export class RetroKit extends EventEmitter<EmuEventMap> {
       }
 
       // Compute game hash and fetch RetroAchievements definitions if logged in
-      const gameHash = this.achievements.computeGameHash(romBytes);
+      // For large ROMs/ISOs (>150MB) fetched via URL, hash only the initial 64KB slice to avoid blocking the main thread
+      const hashTarget =
+        romBytes.length > 150 * 1024 * 1024
+          ? romBytes.subarray(0, 65536)
+          : romBytes;
+      const gameHash = this.achievements.computeGameHash(hashTarget);
       this.achievements
         .loadAchievements(gameHash, options?.fileName)
         .catch((err) => {

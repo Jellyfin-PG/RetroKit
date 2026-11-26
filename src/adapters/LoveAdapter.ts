@@ -312,6 +312,7 @@ export class LoveAdapter extends BaseCoreBridge {
 
     try {
       const evt = new KeyboardEvent(eventType, eventInit);
+      (evt as any)._isRetroKitSynthetic = true;
       target.dispatchEvent(evt);
     } catch (_) {}
   }

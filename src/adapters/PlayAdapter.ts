@@ -137,6 +137,51 @@ export class PlayAdapter extends BaseCoreBridge {
       throw new Error('[PlayAdapter] Play! runtime failed to initialize.');
     }
 
+    if (typeof window !== 'undefined') {
+      (window as any).PlayModule = this._playModule;
+      (window as any).Module = this._playModule;
+    }
+
+    this._playModule.discImageDevice = new DiscImageDevice(this._playModule);
+
+    if (
+      options?.initialSram &&
+      typeof options.initialSram === 'object' &&
+      !(options.initialSram instanceof Uint8Array)
+    ) {
+      await this.rawSetSram(options.initialSram);
+    }
+
+    // Two-phase VM init required by Play! WebAssembly (GS pthread + EE mailbox)
+    if (typeof this._playModule.ccall === 'function') {
+      try {
+        this._playModule.ccall('initVm', '', [], []);
+      } catch (_) {}
+    } else if (typeof this._playModule._initVm === 'function') {
+      try {
+        this._playModule._initVm();
+      } catch (_) {}
+    }
+
+    if (typeof this._playModule.getVmInitState === 'function') {
+      const t0 = Date.now();
+      for (;;) {
+        const st = this._playModule.getVmInitState();
+        if (st === 2) break;
+        if (st === 1 && typeof this._playModule.ccall === 'function') {
+          try {
+            this._playModule.ccall('initVmPhase2', '', [], []);
+          } catch (_) {}
+          continue;
+        }
+        if (Date.now() - t0 > 60000) {
+          console.error('[PlayAdapter] Play! VM init timeout');
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
+
     if (fileName.toLowerCase().endsWith('.elf')) {
       const buf = await this._romBlob.arrayBuffer();
       const bytes = new Uint8Array(buf);
@@ -150,15 +195,9 @@ export class PlayAdapter extends BaseCoreBridge {
       this._playModule.discImageDevice.setFile(this._romBlob);
       if (typeof this._playModule.bootDiscImage === 'function') {
         this._playModule.bootDiscImage(fileName);
+      } else if (typeof this._playModule._bootDiscImage === 'function') {
+        this._playModule._bootDiscImage(fileName);
       }
-    }
-
-    if (
-      options?.initialSram &&
-      typeof options.initialSram === 'object' &&
-      !(options.initialSram instanceof Uint8Array)
-    ) {
-      await this.rawSetSram(options.initialSram);
     }
 
     this.start();
@@ -215,7 +254,7 @@ export class PlayAdapter extends BaseCoreBridge {
   public override async destroy(): Promise<void> {
     await super.destroy();
     if (this.context?.canvas && this.context.canvas.id === 'outputCanvas') {
-      this.context.canvas.id = 'canvas';
+      this.context.canvas.id = 'retrokit-canvas';
     }
     if (this._playModule) {
       if (typeof this._playModule.pauseMainLoop === 'function') {
@@ -406,6 +445,7 @@ export class PlayAdapter extends BaseCoreBridge {
       });
     } catch (_) {}
 
+    (evt as any)._isRetroKitSynthetic = true;
     canvas.dispatchEvent(evt);
   }
 
@@ -418,9 +458,11 @@ export class PlayAdapter extends BaseCoreBridge {
         : '/play-cores';
     const playJsUrl = `${baseUrl.replace(/\/$/, '')}/Play.js`;
 
-    // Play! WebAssembly core hardcodes #outputCanvas as its WebGL rendering target
+    // Play! WebAssembly core hardcodes #outputCanvas as its WebGL2 rendering target at 640x448
     if (this.context?.canvas) {
       this.context.canvas.id = 'outputCanvas';
+      this.context.canvas.width = 640;
+      this.context.canvas.height = 448;
     }
 
     const moduleOverrides: any = {
@@ -456,16 +498,6 @@ export class PlayAdapter extends BaseCoreBridge {
       try {
         mod.FS.mkdir('/work');
       } catch (_) {}
-      mod.discImageDevice = new DiscImageDevice(mod);
-      if (typeof mod.ccall === 'function') {
-        try {
-          mod.ccall('initVm', '', [], []);
-        } catch (_) {}
-      } else if (typeof mod._initVm === 'function') {
-        try {
-          mod._initVm();
-        } catch (_) {}
-      }
       this._playModule = mod;
     } catch (err: any) {
       const msg = `Failed to load Play! PS2 runtime from "${playJsUrl}": ${err?.message || err}`;

@@ -192,9 +192,12 @@ export class RuffleAdapter extends BaseCoreBridge {
 
     const key = keyMap[buttonId];
     if (key && typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new KeyboardEvent(pressed ? 'keydown' : 'keyup', { code: key, key }),
-      );
+      const evt = new KeyboardEvent(pressed ? 'keydown' : 'keyup', {
+        code: key,
+        key,
+      });
+      (evt as any)._isRetroKitSynthetic = true;
+      window.dispatchEvent(evt);
     }
   }
 
@@ -221,10 +224,19 @@ export class RuffleAdapter extends BaseCoreBridge {
       const ruffle = RufflePlayer.newest();
       this._player = ruffle.createPlayer();
 
-      // Parent container to hold ruffle canvas
+      // Parent container to hold ruffle player scaled to viewport
       const canvas = this.context?.canvas;
       if (canvas && canvas.parentElement) {
         canvas.style.display = 'none'; // Hide placeholder canvas
+        this._player.style.display = 'block';
+        this._player.style.width = '100%';
+        this._player.style.height = '100%';
+        this._player.style.margin = 'auto';
+        this._player.config = {
+          ...(this._player.config || {}),
+          letterbox: 'on',
+          scale: 'showAll',
+        };
         canvas.parentElement.appendChild(this._player);
       }
     }

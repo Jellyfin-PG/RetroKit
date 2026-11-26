@@ -47,8 +47,8 @@ export class InputManager implements IInputManager {
     this._onKeyUpRef = this._handleKeyUp.bind(this);
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('keydown', this._onKeyDownRef);
-      window.addEventListener('keyup', this._onKeyUpRef);
+      window.addEventListener('keydown', this._onKeyDownRef, true);
+      window.addEventListener('keyup', this._onKeyUpRef, true);
       this._startGamepadLoop();
     }
   }
@@ -139,13 +139,34 @@ export class InputManager implements IInputManager {
       this._pollRaf = null;
     }
     if (typeof window !== 'undefined') {
-      window.removeEventListener('keydown', this._onKeyDownRef);
-      window.removeEventListener('keyup', this._onKeyUpRef);
+      window.removeEventListener('keydown', this._onKeyDownRef, true);
+      window.removeEventListener('keyup', this._onKeyUpRef, true);
     }
   }
 
+  private _shouldIgnoreKeyEvent(e: KeyboardEvent): boolean {
+    if ((e as any)._isRetroKitSynthetic) return true;
+    const target = e.target as HTMLElement | null;
+    if (
+      target &&
+      (target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.tagName === 'SELECT' ||
+        target.isContentEditable)
+    ) {
+      return true;
+    }
+    if (
+      typeof window !== 'undefined' &&
+      (window as any).__JE_INPUT_MODAL_OPEN__
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   private _handleKeyDown(e: KeyboardEvent): void {
-    if ((e as any)._isRetroKitSynthetic) return;
+    if (this._shouldIgnoreKeyEvent(e)) return;
 
     // Check global hotkeys
     const hotkey = this._hotkeys.get(e.code) || this._hotkeys.get(e.key);
@@ -153,6 +174,8 @@ export class InputManager implements IInputManager {
       const handler = this._hotkeyHandlers.get(hotkey);
       if (handler) {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         handler();
         return;
       }
@@ -162,16 +185,43 @@ export class InputManager implements IInputManager {
     const handled = this._players[0].handleKeyEvent(e.code, true);
     if (handled) {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return;
+    }
+
+    // Prevent unmapped keys from leaking into Emscripten/RetroArch SDL or EmulatorJS default keymaps
+    if (this._shouldBlockUnmappedKey(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
     }
   }
 
   private _handleKeyUp(e: KeyboardEvent): void {
-    if ((e as any)._isRetroKitSynthetic) return;
+    if (this._shouldIgnoreKeyEvent(e)) return;
 
     const handled = this._players[0].handleKeyEvent(e.code, false);
     if (handled) {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      return;
     }
+
+    if (this._shouldBlockUnmappedKey(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+  }
+
+  private _shouldBlockUnmappedKey(e: KeyboardEvent): boolean {
+    if (!this._getAdapter()) return false;
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    // Allow browser refresh (F5), fullscreen (F11), DevTools (F12), and Escape
+    if (/^F([5-9]|1[0-2])$/.test(e.code) || e.code === 'Escape') return false;
+    return true;
   }
 
   private _startGamepadLoop(): void {

@@ -26,6 +26,8 @@ export class LibretroAdapter extends BaseCoreBridge {
   private _additionalFiles: Array<{ name: string; data: Uint8Array }> = [];
   private _started = false;
   private _pendingBios = new Map<string, Uint8Array>();
+  private _isFastForward = false;
+  private _isSlowMotion = false;
 
   constructor(
     id: string,
@@ -174,13 +176,14 @@ export class LibretroAdapter extends BaseCoreBridge {
   }
 
   public override async restart(): Promise<void> {
-    if (this._module) {
-      if (typeof this._module.EmscriptenSendCommand === 'function') {
-        this._module.EmscriptenSendCommand('RESET');
-      } else {
-        this._dispatchKeyboardFallback(100, true);
-        setTimeout(() => this._dispatchKeyboardFallback(100, false), 50);
-      }
+    if (!this._module) return;
+    if (typeof this._module.EmscriptenSendCommand === 'function') {
+      this._module.EmscriptenSendCommand('RESET');
+    } else {
+      this._dispatchKeyboardFallback(100, true);
+      setTimeout(() => this._dispatchKeyboardFallback(100, false), 50);
+    }
+    if (this.isPausedInternal) {
       this.resume();
     }
   }
@@ -210,7 +213,7 @@ export class LibretroAdapter extends BaseCoreBridge {
   }
 
   // --- Save States ---
-  public override async rawSaveState(slot = 0): Promise<Uint8Array | null> {
+  public override async rawSaveState(_slot = 0): Promise<Uint8Array | null> {
     if (!this._module) return null;
 
     // Check if this core is running under EmulatorJS gameManager
@@ -259,13 +262,11 @@ export class LibretroAdapter extends BaseCoreBridge {
         } catch (_) {}
       }
 
-      // Trigger save state using standard RetroArch command (with state_slot config if > 0)
+      // Trigger save state using standard RetroArch command
       if (
         typeof this._module.EmscriptenSendCommand === 'function' ||
         typeof this._module.ccall === 'function'
       ) {
-        const slotIndex = Math.max(0, slot);
-        this._sendCommand(`SET_CONFIG_PARAM state_slot ${slotIndex}`);
         this._sendCommand('SAVE_STATE');
       } else {
         // Fallback to keyboard hotkey only if command interface is not exposed
@@ -328,29 +329,40 @@ export class LibretroAdapter extends BaseCoreBridge {
         this._ensureDirectories(this._module.FS, contentDir);
         const fileName = this._romPath.split('/').pop() || 'rom.bin';
         const baseName = fileName.replace(/\.[^.]+$/, '');
+        const baseNames = new Set<string>([baseName]);
 
-        // Write snapshot to states directory
-        this._module.FS.writeFile(`${statesDir}/${baseName}.state`, data);
-        this._module.FS.writeFile(`${statesDir}/${baseName}.state.auto`, data);
-        this._module.FS.writeFile(`${statesDir}/${baseName}.state0`, data);
-        this._module.FS.writeFile(`${statesDir}/${baseName}.state1`, data);
-        if (slot > 1) {
-          this._module.FS.writeFile(
-            `${statesDir}/${baseName}.state${slot}`,
-            data,
-          );
+        // If ROM is a ZIP archive, RetroArch derives the state filename from the inner ROM filename
+        const innerZipName = this._extractZipFirstEntryName(this._romData);
+        if (innerZipName) {
+          const innerClean = innerZipName.split('/').pop() || innerZipName;
+          const innerBase = innerClean.replace(/\.[^.]+$/, '');
+          if (innerBase) baseNames.add(innerBase);
         }
 
-        // Write snapshot to content directory (RetroArch default fallback)
-        this._module.FS.writeFile(`${contentDir}/${baseName}.state`, data);
-        this._module.FS.writeFile(`${contentDir}/${baseName}.state.auto`, data);
-        this._module.FS.writeFile(`${contentDir}/${baseName}.state0`, data);
-        this._module.FS.writeFile(`${contentDir}/${baseName}.state1`, data);
-        if (slot > 1) {
-          this._module.FS.writeFile(
-            `${contentDir}/${baseName}.state${slot}`,
-            data,
-          );
+        for (const name of baseNames) {
+          // Write snapshot to states directory
+          this._module.FS.writeFile(`${statesDir}/${name}.state`, data);
+          this._module.FS.writeFile(`${statesDir}/${name}.state.auto`, data);
+          this._module.FS.writeFile(`${statesDir}/${name}.state0`, data);
+          this._module.FS.writeFile(`${statesDir}/${name}.state1`, data);
+          if (slot > 1) {
+            this._module.FS.writeFile(
+              `${statesDir}/${name}.state${slot}`,
+              data,
+            );
+          }
+
+          // Write snapshot to content directory (RetroArch default fallback)
+          this._module.FS.writeFile(`${contentDir}/${name}.state`, data);
+          this._module.FS.writeFile(`${contentDir}/${name}.state.auto`, data);
+          this._module.FS.writeFile(`${contentDir}/${name}.state0`, data);
+          this._module.FS.writeFile(`${contentDir}/${name}.state1`, data);
+          if (slot > 1) {
+            this._module.FS.writeFile(
+              `${contentDir}/${name}.state${slot}`,
+              data,
+            );
+          }
         }
 
         // Also overwrite any existing state file discovered anywhere in FS
@@ -361,16 +373,8 @@ export class LibretroAdapter extends BaseCoreBridge {
           } catch (_) {}
         }
 
-        // Trigger load state using standard RetroArch command
-        if (
-          typeof this._module.EmscriptenSendCommand === 'function' ||
-          typeof this._module.ccall === 'function'
-        ) {
-          const slotIndex = Math.max(0, slot);
-          this._sendCommand(`SET_CONFIG_PARAM state_slot ${slotIndex}`);
-          this._sendCommand('LOAD_STATE');
-        } else {
-          // Fallback to keyboard hotkey only if command interface is not exposed
+        // Trigger load state using standard RetroArch command (with F4 fallback if command interface is unavailable)
+        if (!this._sendCommand('LOAD_STATE')) {
           this._dispatchKeyboardFallback(102, true); // F4
           await new Promise((r) => setTimeout(r, 60));
           this._dispatchKeyboardFallback(102, false);
@@ -529,6 +533,23 @@ export class LibretroAdapter extends BaseCoreBridge {
         return this._parseCoreOptionsString(raw);
       }
     }
+
+    // RetroArch Web WASM writes active core options to retroarch-core-options.cfg in FS
+    if (this._module?.FS) {
+      const cfgPaths = [
+        '/home/web_user/retroarch/userdata/retroarch-core-options.cfg',
+        '/home/web_user/retroarch/userdata/config/retroarch-core-options.cfg',
+      ];
+      for (const p of cfgPaths) {
+        try {
+          if (this._module.FS.analyzePath(p).exists) {
+            const text = this._module.FS.readFile(p, { encoding: 'utf8' });
+            const parsed = this._parseRetroArchCoreOptionsCfg(text);
+            if (parsed.length > 0) return parsed;
+          }
+        } catch (_) {}
+      }
+    }
     return [];
   }
 
@@ -542,6 +563,73 @@ export class LibretroAdapter extends BaseCoreBridge {
         this._module.gameManager.setVariable(key, value);
       } catch (_) {}
     }
+
+    if (this._module?.FS) {
+      const cfgPath =
+        '/home/web_user/retroarch/userdata/retroarch-core-options.cfg';
+      try {
+        let lines: string[] = [];
+        if (this._module.FS.analyzePath(cfgPath).exists) {
+          const text: string = this._module.FS.readFile(cfgPath, {
+            encoding: 'utf8',
+          });
+          lines = text.split('\n');
+        }
+        let updated = false;
+        const newLine = `${key} = "${value}"`;
+        lines = lines.map((line) => {
+          if (
+            line.trim().startsWith(`${key} `) ||
+            line.trim().startsWith(`${key}=`)
+          ) {
+            updated = true;
+            return newLine;
+          }
+          return line;
+        });
+        if (!updated) lines.push(newLine);
+        this._module.FS.writeFile(cfgPath, lines.join('\n'));
+      } catch (_) {}
+    }
+  }
+
+  private _parseRetroArchCoreOptionsCfg(raw: string): CoreOptionDefinition[] {
+    const results: CoreOptionDefinition[] = [];
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx <= 0) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed
+        .slice(eqIdx + 1)
+        .trim()
+        .replace(/^"|"$/g, '');
+      const choicesSet = new Set<string>([val]);
+      if (val === 'enabled' || val === 'disabled') {
+        choicesSet.add('enabled');
+        choicesSet.add('disabled');
+      } else if (val === 'true' || val === 'false') {
+        choicesSet.add('true');
+        choicesSet.add('false');
+      } else if (val === 'ON' || val === 'OFF') {
+        choicesSet.add('ON');
+        choicesSet.add('OFF');
+      }
+      const choices = Array.from(choicesSet).map((c) => ({
+        value: c,
+        label: c,
+      }));
+      results.push({
+        id: key,
+        label: key.replace(/^[^_]+_/, '').replace(/_/g, ' '),
+        type: 'enum',
+        choices,
+        defaultValue: val,
+        currentValue: this._coreOptionsMap[key] ?? val,
+      });
+    }
+    return results;
   }
 
   // --- Cheats ---
@@ -607,17 +695,20 @@ export class LibretroAdapter extends BaseCoreBridge {
     }
   }
 
-  private _sendCommand(cmd: string): void {
-    if (!this._module) return;
+  private _sendCommand(cmd: string): boolean {
+    if (!this._module) return false;
     try {
       if (typeof this._module.EmscriptenSendCommand === 'function') {
         this._module.EmscriptenSendCommand(cmd);
+        return true;
       } else if (typeof this._module.ccall === 'function') {
         this._module.ccall('EmscriptenSendCommand', null, ['string'], [cmd]);
+        return true;
       }
     } catch (e) {
       console.warn('[LibretroAdapter] _sendCommand failed for:', cmd, e);
     }
+    return false;
   }
 
   private _isDispatchingFallback = false;
@@ -745,6 +836,40 @@ export class LibretroAdapter extends BaseCoreBridge {
     return this._fps;
   }
 
+  public override rawSetSpeed(ratio: number): void {
+    const wantFf = ratio > 1.05;
+    const wantSlow = ratio > 0 && ratio < 0.95;
+
+    if (wantFf !== this._isFastForward) {
+      this._isFastForward = wantFf;
+      this._sendCommand('FAST_FORWARD');
+    }
+    if (wantSlow !== this._isSlowMotion) {
+      this._isSlowMotion = wantSlow;
+      this._sendCommand('SLOWMOTION');
+    }
+  }
+
+  private _extractZipFirstEntryName(data: Uint8Array | null): string | null {
+    if (!data || data.byteLength < 34) return null;
+    // ZIP local file header signature: PK\x03\x04
+    if (
+      data[0] !== 0x50 ||
+      data[1] !== 0x4b ||
+      data[2] !== 0x03 ||
+      data[3] !== 0x04
+    ) {
+      return null;
+    }
+    const nameLen = data[26] | (data[27] << 8);
+    if (nameLen <= 0 || 30 + nameLen > data.byteLength) return null;
+    try {
+      return new TextDecoder().decode(data.subarray(30, 30 + nameLen));
+    } catch (_) {
+      return null;
+    }
+  }
+
   private async _instantiateCoreModule(): Promise<void> {
     const baseUrl = this.context?.assetBaseUrl || '';
     const coreScriptUrl = `${baseUrl.replace(/\/$/, '')}/${this.id}_libretro.js`;
@@ -852,8 +977,14 @@ export class LibretroAdapter extends BaseCoreBridge {
               'video_frame_delay = "0"',
               'audio_latency = "64"',
               'audio_sync = "true"',
+              'fastforward_ratio = "3.0"',
+              'slowmotion_ratio = "3.0"',
               'savefile_directory = "/home/web_user/retroarch/userdata/saves"',
               'savestate_directory = "/home/web_user/retroarch/userdata/states"',
+              'sort_savestates_enable = "false"',
+              'sort_savestates_by_content_enable = "false"',
+              'savestates_in_content_dir = "false"',
+              'state_slot = "0"',
               'system_directory = "/home/web_user/retroarch/userdata/system"',
               'content_directory = "/home/web_user/retroarch/userdata/content"',
               'rgui_browser_directory = "/home/web_user/retroarch/userdata/content"',
