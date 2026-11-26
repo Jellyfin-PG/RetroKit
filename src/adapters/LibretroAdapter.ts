@@ -4,6 +4,7 @@ import type {
   CoreOptionDefinition,
   GameLoadOptions,
 } from '../core/types';
+import { LIBRETRO_CORE_OPTIONS } from '../data/libretroCoreOptions';
 import { BaseCoreBridge } from './BaseCoreBridge';
 import type { AdapterContext } from './ICoreAdapter';
 
@@ -535,6 +536,7 @@ export class LibretroAdapter extends BaseCoreBridge {
     }
 
     // RetroArch Web WASM writes active core options to retroarch-core-options.cfg in FS
+    let fsParsed: CoreOptionDefinition[] = [];
     if (this._module?.FS) {
       const cfgPaths = [
         '/home/web_user/retroarch/userdata/retroarch-core-options.cfg',
@@ -545,12 +547,32 @@ export class LibretroAdapter extends BaseCoreBridge {
           if (this._module.FS.analyzePath(p).exists) {
             const text = this._module.FS.readFile(p, { encoding: 'utf8' });
             const parsed = this._parseRetroArchCoreOptionsCfg(text);
-            if (parsed.length > 0) return parsed;
+            if (parsed.length > 0) {
+              fsParsed = parsed;
+              break;
+            }
           }
         } catch (_) {}
       }
     }
-    return [];
+
+    const staticDefs = LIBRETRO_CORE_OPTIONS[this.id];
+    if (staticDefs && staticDefs.length > 0) {
+      const cfgMap: Record<string, string> = {};
+      for (const opt of fsParsed) {
+        if (opt.currentValue !== undefined) {
+          cfgMap[opt.id] = opt.currentValue;
+        }
+      }
+      return staticDefs.map((opt) => ({
+        ...opt,
+        type: 'enum' as const,
+        currentValue:
+          this._coreOptionsMap[opt.id] ?? cfgMap[opt.id] ?? opt.defaultValue,
+      }));
+    }
+
+    return fsParsed;
   }
 
   public override rawSetOption(key: string, value: string): void {
@@ -1037,6 +1059,20 @@ export class LibretroAdapter extends BaseCoreBridge {
             try {
               mod.FS.writeFile(cfgPath, finalCfg);
             } catch (_) {}
+
+            // Pre-seed retroarch-core-options.cfg with any saved user options
+            const optionEntries = Object.entries(this._coreOptionsMap);
+            if (optionEntries.length > 0) {
+              const coreOptText = `${optionEntries.map(([k, v]) => `${k} = "${v}"`).join('\n')}\n`;
+              for (const p of [
+                '/home/web_user/retroarch/userdata/retroarch-core-options.cfg',
+                '/home/web_user/retroarch/userdata/config/retroarch-core-options.cfg',
+              ]) {
+                try {
+                  mod.FS.writeFile(p, coreOptText);
+                } catch (_) {}
+              }
+            }
 
             // Write ROM data into virtual FS
             if (this._romData) {
