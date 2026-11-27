@@ -7,6 +7,30 @@ import type {
 } from '../core/types';
 import { PlayerInputChannel } from './PlayerInputChannel';
 
+const KEYBOARD_PASSTHROUGH_SYSTEMS = new Set([
+  'dos',
+  'amiga',
+  'c64',
+  'pc88',
+  'x1',
+  'thomson',
+  'mac',
+  'palmos',
+  'ti83',
+  'bk',
+  'galaksija',
+  'p2000',
+  'scummvm',
+  'flash',
+  'love',
+  'chailove',
+  'craft',
+  'doom',
+  'quake',
+  'quake2',
+  'ecwolf',
+]);
+
 export interface IInputManager {
   player(index: number): PlayerInputChannel;
   getMaxPlayers(): number;
@@ -225,7 +249,11 @@ export class InputManager implements IInputManager {
   }
 
   private _shouldBlockUnmappedKey(e: KeyboardEvent): boolean {
-    if (!this._getAdapter()) return false;
+    const adapter = this._getAdapter();
+    if (!adapter) return false;
+    if (KEYBOARD_PASSTHROUGH_SYSTEMS.has(adapter.system?.toLowerCase())) {
+      return false;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     // Allow browser refresh (F5), fullscreen (F11), DevTools (F12), and Escape
     if (/^F([5-9]|1[0-2])$/.test(e.code) || e.code === 'Escape') return false;
