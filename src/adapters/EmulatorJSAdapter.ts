@@ -1418,11 +1418,24 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
             // Write companion files
             for (const extra of this._additionalFiles) {
               try {
-                mod.FS.writeFile(
-                  `/home/web_user/retroarch/userdata/content/${extra.name}`,
-                  extra.data,
+                const cleanExtra = extra.name.replace(/^\/+/, '');
+                const contentPath = `/home/web_user/retroarch/userdata/content/${cleanExtra}`;
+                const contentParent = contentPath.substring(
+                  0,
+                  contentPath.lastIndexOf('/'),
                 );
-                mod.FS.writeFile(`/${extra.name}`, extra.data);
+                this._ensureDirectories(mod.FS, contentParent);
+                mod.FS.writeFile(contentPath, extra.data);
+
+                const rootPath = `/${cleanExtra}`;
+                const rootParent = rootPath.substring(
+                  0,
+                  rootPath.lastIndexOf('/'),
+                );
+                if (rootParent) {
+                  this._ensureDirectories(mod.FS, rootParent);
+                }
+                mod.FS.writeFile(rootPath, extra.data);
               } catch (e) {
                 console.warn(
                   '[EmulatorJSAdapter] Error writing companion file:',

@@ -1072,6 +1072,7 @@ export class LibretroAdapter extends BaseCoreBridge {
               'fastforward_ratio = "3.0"',
               'slowmotion_ratio = "3.0"',
               'savefile_directory = "/home/web_user/retroarch/userdata/saves"',
+              'autosave_interval = "5"',
               'savestate_directory = "/home/web_user/retroarch/userdata/states"',
               'sort_savestates_enable = "false"',
               'sort_savestates_by_content_enable = "false"',
@@ -1145,7 +1146,13 @@ export class LibretroAdapter extends BaseCoreBridge {
             // Write any companion files (.bin tracks for a .cue, multi-disc files)
             for (const extra of this._additionalFiles) {
               try {
-                const extraPath = `/home/web_user/retroarch/userdata/content/${extra.name}`;
+                const cleanExtra = extra.name.replace(/^\/+/, '');
+                const extraPath = `/home/web_user/retroarch/userdata/content/${cleanExtra}`;
+                const parentDir = extraPath.substring(
+                  0,
+                  extraPath.lastIndexOf('/'),
+                );
+                this._ensureDirectories(mod.FS, parentDir);
                 mod.FS.writeFile(extraPath, extra.data);
               } catch (e) {
                 console.warn(
