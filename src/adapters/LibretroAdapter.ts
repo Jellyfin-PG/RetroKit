@@ -1121,7 +1121,7 @@ export class LibretroAdapter extends BaseCoreBridge {
               'input_player1_r_y_minus = "t"',
               'input_player1_r_y_plus = "b"',
               ...(this.id === 'pcsx_rearmed'
-                ? ['input_libretro_device_p1 = "5"']
+                ? ['input_libretro_device_p1 = "517"']
                 : []),
               'network_cmd_enable = "true"',
               'stdin_cmd_enable = "false"',
