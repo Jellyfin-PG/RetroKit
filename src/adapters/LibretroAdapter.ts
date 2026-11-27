@@ -1059,6 +1059,8 @@ export class LibretroAdapter extends BaseCoreBridge {
               'video_driver = "gl"',
               'audio_driver = "rwebaudio"',
               'input_driver = "rwebinput"',
+              'input_joypad_driver = "null"',
+              'input_autodetect_enable = "false"',
               'video_vsync = "false"',
               'video_smooth = "false"',
               'video_threaded = "false"',
