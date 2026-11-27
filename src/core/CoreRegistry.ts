@@ -416,7 +416,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -436,7 +436,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -456,7 +456,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -476,7 +476,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -496,7 +496,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -516,7 +516,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -536,7 +536,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -556,7 +556,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -576,7 +576,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -596,7 +596,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -616,7 +616,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -636,7 +636,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -656,7 +656,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -760,7 +760,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: true,
         shaders: true,
@@ -780,7 +780,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: true,
         shaders: true,
@@ -800,7 +800,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: true,
         shaders: true,
@@ -840,7 +840,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -860,9 +860,9 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
-        multiDisc: true,
+        multiDisc: false,
         shaders: true,
         rewind: false,
         variableSpeed: true,
@@ -880,7 +880,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -900,7 +900,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -920,7 +920,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -940,7 +940,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -960,7 +960,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -980,7 +980,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: false,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -1000,7 +1000,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: false,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -1020,7 +1020,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: false,
         shaders: true,
@@ -1120,7 +1120,7 @@ export class CoreRegistry {
       capabilities: {
         saveStates: true,
         sram: true,
-        cheats: true,
+        cheats: false,
         coreOptions: true,
         multiDisc: true,
         shaders: true,
