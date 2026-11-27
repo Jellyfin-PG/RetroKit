@@ -55,6 +55,21 @@ export class PlayerInputChannel {
     number,
     { axis: StandardAxis; direction: 1 | -1 }
   >();
+  private _gamepadAxisToButtonBindings = new Map<
+    string,
+    { gpAxisIndex: number; gpDir: 1 | -1; action: StandardButton }
+  >();
+  private _gamepadAxisToButtonStates = new Map<string, boolean>();
+  private _gamepadAxisToAxisBindings = new Map<
+    string,
+    {
+      gpAxisIndex: number;
+      gpDir: 1 | -1;
+      axis: StandardAxis;
+      direction: 1 | -1;
+    }
+  >();
+  private _gamepadAxisToAxisStates = new Map<string, boolean>();
   private _activeGamepadAxisButtonDirections = new Map<
     StandardAxis,
     { pos: boolean; neg: boolean }
@@ -162,12 +177,40 @@ export class PlayerInputChannel {
     this._gamepadAxisButtonBindings.set(buttonIndex, { axis, direction });
   }
 
+  public setGamepadAxisToButtonBinding(
+    gpAxisIndex: number,
+    gpDir: 1 | -1,
+    action: StandardButton,
+  ): void {
+    const key = `${gpAxisIndex}:${gpDir}:${action}`;
+    this._gamepadAxisToButtonBindings.set(key, { gpAxisIndex, gpDir, action });
+  }
+
+  public setGamepadAxisToAxisBinding(
+    gpAxisIndex: number,
+    gpDir: 1 | -1,
+    axis: StandardAxis,
+    direction: 1 | -1,
+  ): void {
+    const key = `${gpAxisIndex}:${gpDir}:${axis}:${direction}`;
+    this._gamepadAxisToAxisBindings.set(key, {
+      gpAxisIndex,
+      gpDir,
+      axis,
+      direction,
+    });
+  }
+
   public clearBindings(): void {
     this._keyBindings.clear();
     this._keyAxisBindings.clear();
     this._activeKeyAxisDirections.clear();
     this._gamepadBindings.clear();
     this._gamepadAxisButtonBindings.clear();
+    this._gamepadAxisToButtonBindings.clear();
+    this._gamepadAxisToButtonStates.clear();
+    this._gamepadAxisToAxisBindings.clear();
+    this._gamepadAxisToAxisStates.clear();
     this._activeGamepadAxisButtonDirections.clear();
   }
 
@@ -289,6 +332,38 @@ export class PlayerInputChannel {
           const value = (state.pos ? 1 : 0) - (state.neg ? 1 : 0);
           this.sendAxis(axisBind.axis, value);
         }
+      }
+    }
+
+    // Process gamepad axis-to-button bindings (e.g. Right Stick Left/Right -> L2/R2)
+    for (const [key, bind] of this._gamepadAxisToButtonBindings.entries()) {
+      const val = gamepad.axes[bind.gpAxisIndex] ?? 0;
+      const pressed = bind.gpDir === 1 ? val > 0.5 : val < -0.5;
+      const prev = this._gamepadAxisToButtonStates.get(key) ?? false;
+      if (pressed !== prev) {
+        this._gamepadAxisToButtonStates.set(key, pressed);
+        this.sendButton(bind.action, pressed);
+      }
+    }
+
+    // Process gamepad axis-to-axis bindings (e.g. remapped stick directions)
+    for (const [key, bind] of this._gamepadAxisToAxisBindings.entries()) {
+      const val = gamepad.axes[bind.gpAxisIndex] ?? 0;
+      const pressed = bind.gpDir === 1 ? val > 0.5 : val < -0.5;
+      const prev = this._gamepadAxisToAxisStates.get(key) ?? false;
+      if (pressed !== prev) {
+        this._gamepadAxisToAxisStates.set(key, pressed);
+        const state = this._activeGamepadAxisButtonDirections.get(
+          bind.axis,
+        ) ?? {
+          pos: false,
+          neg: false,
+        };
+        if (bind.direction === 1) state.pos = pressed;
+        else state.neg = pressed;
+        this._activeGamepadAxisButtonDirections.set(bind.axis, state);
+        const outVal = (state.pos ? 1 : 0) - (state.neg ? 1 : 0);
+        this.sendAxis(bind.axis, outVal);
       }
     }
 
