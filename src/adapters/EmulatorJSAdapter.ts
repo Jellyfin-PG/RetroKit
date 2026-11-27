@@ -1580,10 +1580,35 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
       return { jsBytes: cached.js, wasmBytes: cached.wasm };
     }
 
-    // Try fetching unpacked files if assetBaseUrl is configured
+    // Try fetching .data bundle or unpacked files if assetBaseUrl is configured
     const baseUrl = this.context?.assetBaseUrl;
     if (baseUrl) {
       const cleanBase = baseUrl.replace(/\/$/, '');
+      try {
+        const bundleRes = await fetch(`${cleanBase}/${cfg.bundleName}`);
+        if (bundleRes.ok) {
+          const bundleData = new Uint8Array(await bundleRes.arrayBuffer());
+          const unpacked = await ArchiveExtractor.decompress(
+            bundleData,
+            '7z',
+            (pct) => {
+              this.context?.onLog?.(
+                `[EmulatorJSAdapter] Unpacking core: ${pct}%`,
+                'info',
+              );
+            },
+          );
+          const js = unpacked[cfg.jsName];
+          const wasm = unpacked[cfg.wasmName];
+          if (js && wasm) {
+            MEMORY_CACHE.set(this.id, { js, wasm });
+            return { jsBytes: js, wasmBytes: wasm };
+          }
+        }
+      } catch (_) {
+        // Try unpacked files or fallback CDN
+      }
+
       const jsUrl = `${cleanBase}/${cfg.jsName}`;
       const wasmUrl = `${cleanBase}/${cfg.wasmName}`;
 
