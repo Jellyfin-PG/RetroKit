@@ -1401,10 +1401,9 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
               mod.FS.writeFile(altCfgPath, minimalCfg);
             } catch (_) {}
 
-            // Write ROM into both content directory and root path
+            // Write ROM into root path (avoid duplicating large ISOs/ZIPs in MEMFS)
             if (this._romData) {
               try {
-                mod.FS.writeFile(this._romPath, this._romData);
                 const safeName = this._romPath.split('/').pop() || 'rom.bin';
                 mod.FS.writeFile(`/${safeName}`, this._romData);
               } catch (e) {
@@ -1415,18 +1414,10 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
               }
             }
 
-            // Write companion files
+            // Write companion files into root path alongside the primary ROM
             for (const extra of this._additionalFiles) {
               try {
                 const cleanExtra = extra.name.replace(/^\/+/, '');
-                const contentPath = `/home/web_user/retroarch/userdata/content/${cleanExtra}`;
-                const contentParent = contentPath.substring(
-                  0,
-                  contentPath.lastIndexOf('/'),
-                );
-                this._ensureDirectories(mod.FS, contentParent);
-                mod.FS.writeFile(contentPath, extra.data);
-
                 const rootPath = `/${cleanExtra}`;
                 const rootParent = rootPath.substring(
                   0,
