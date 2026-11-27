@@ -12,6 +12,12 @@ export { RuffleAdapter } from './adapters/RuffleAdapter';
 export { CoreRegistry } from './core/CoreRegistry';
 // Core Types & Metadata
 export * from './core/types';
+export {
+  buildRetroArchInputConfigLines,
+  LIBRETRO_PLAYER_KEYMAPS,
+  type LibretroKeyEntry,
+  RETROARCH_DISABLED_HOTKEYS,
+} from './data/libretroInputMap';
 export { DEFAULT_CAPABILITIES, EmuHeadless, RetroKit } from './RetroKit';
 export type { IAchievementManager } from './subsystems/AchievementManager';
 export { AchievementManager } from './subsystems/AchievementManager';
