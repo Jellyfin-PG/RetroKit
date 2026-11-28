@@ -213,13 +213,15 @@ export class InputManager implements IInputManager {
       }
     }
 
-    // Dispatch to Player 1 by default for keyboard
-    const handled = this._players[0].handleKeyEvent(e.code, true);
-    if (handled) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      return;
+    // Dispatch to Player 1 by default for keyboard (skip on keyboard-passthrough systems so full keyboard reaches the core)
+    if (!this._isKeyboardPassthroughSystem()) {
+      const handled = this._players[0].handleKeyEvent(e.code, true);
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
     }
 
     // Prevent unmapped keys from leaking into Emscripten/RetroArch SDL or EmulatorJS default keymaps
@@ -233,12 +235,14 @@ export class InputManager implements IInputManager {
   private _handleKeyUp(e: KeyboardEvent): void {
     if (this._shouldIgnoreKeyEvent(e)) return;
 
-    const handled = this._players[0].handleKeyEvent(e.code, false);
-    if (handled) {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      return;
+    if (!this._isKeyboardPassthroughSystem()) {
+      const handled = this._players[0].handleKeyEvent(e.code, false);
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
     }
 
     if (this._shouldBlockUnmappedKey(e)) {
@@ -248,10 +252,16 @@ export class InputManager implements IInputManager {
     }
   }
 
-  private _shouldBlockUnmappedKey(e: KeyboardEvent): boolean {
+  private _isKeyboardPassthroughSystem(): boolean {
     const adapter = this._getAdapter();
-    if (!adapter) return false;
-    if (KEYBOARD_PASSTHROUGH_SYSTEMS.has(adapter.system?.toLowerCase())) {
+    return (
+      !!adapter &&
+      KEYBOARD_PASSTHROUGH_SYSTEMS.has(adapter.system?.toLowerCase())
+    );
+  }
+
+  private _shouldBlockUnmappedKey(e: KeyboardEvent): boolean {
+    if (this._isKeyboardPassthroughSystem()) {
       return false;
     }
     if (e.ctrlKey || e.metaKey || e.altKey) return false;

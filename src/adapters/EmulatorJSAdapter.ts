@@ -439,8 +439,35 @@ function getCoreConfig(coreId: string): CorePackageConfig {
  * Cache storage in memory for decompressed core binaries and assets
  * so subsequent launches of the same core start instantly without re-downloading.
  */
-const MEMORY_CACHE = new Map<string, { js: Uint8Array; wasm: Uint8Array }>();
+interface CoreJsonMeta {
+  options?: {
+    useKeyboard?: boolean;
+    supportsMouse?: boolean;
+  };
+  retroarchOpts?: Array<{
+    name: string;
+    default: string | number | boolean;
+    isString?: boolean;
+  }>;
+}
+
+const MEMORY_CACHE = new Map<
+  string,
+  { js: Uint8Array; wasm: Uint8Array; coreMeta?: CoreJsonMeta }
+>();
 let PPSSPP_ASSETS_CACHE: Record<string, Uint8Array> | null = null;
+
+function parseCoreJson(
+  unpacked: Record<string, Uint8Array>,
+): CoreJsonMeta | undefined {
+  const raw = unpacked['core.json'];
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(new TextDecoder().decode(raw)) as CoreJsonMeta;
+  } catch (_) {
+    return undefined;
+  }
+}
 
 /**
  * EmulatorJSAdapter manages standalone Emscripten Libretro cores provided by
@@ -461,6 +488,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
   private _sramPath = '/home/web_user/retroarch/userdata/saves/rom.srm';
   private _fps = 60;
   private _coreOptionsMap: Record<string, string> = {};
+  private _coreMeta?: CoreJsonMeta;
   private _additionalFiles: Array<{ name: string; data: Uint8Array }> = [];
   private _started = false;
   private _blobUrlsToRevoke: string[] = [];
@@ -550,6 +578,12 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
           const isDebug = !!this.context?.debug;
           const args = isDebug ? ['-v', `/${safeName}`] : [`/${safeName}`];
           this._module.callMain(args);
+          if (
+            this._coreMeta?.options?.useKeyboard ||
+            this.system?.toLowerCase() === 'dos'
+          ) {
+            this._module.gameManager?.setKeyboardEnabled?.(true);
+          }
         } catch (err: any) {
           if (err && err.name !== 'ExitStatus') {
             console.error('[EmulatorJSAdapter] Error starting core:', err);
@@ -1393,6 +1427,11 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
               'input_reset = "h"',
               'network_cmd_enable = "true"',
               'stdin_cmd_enable = "false"',
+              ...(this._coreMeta?.retroarchOpts?.map((opt) => {
+                const val =
+                  opt.isString === false ? opt.default : `"${opt.default}"`;
+                return `${opt.name} = ${val}`;
+              }) || []),
               '',
             ].join('\n');
 
@@ -1498,6 +1537,13 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
         resetCheat: mod.cwrap('reset_cheat', 'null', []),
         loadSaveFiles: mod.cwrap('refresh_save_files', 'null', []),
         saveSaveFiles: mod.cwrap('cmd_savefiles', '', []),
+        setKeyboardEnabled: (() => {
+          try {
+            return mod.cwrap('ejs_set_keyboard_enabled', 'null', ['number']);
+          } catch (_) {
+            return null;
+          }
+        })(),
       };
 
       mod.gameManager = {
@@ -1564,7 +1610,36 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
             fn.loadSaveFiles?.();
           } catch (_) {}
         },
+        setKeyboardEnabled: (enabled: boolean) => {
+          try {
+            fn.setKeyboardEnabled?.(enabled ? 1 : 0);
+          } catch (_) {}
+        },
+        setAltKeyEnabled: (enabled: boolean) => {
+          try {
+            fn.setKeyboardEnabled?.(enabled ? 3 : 2);
+          } catch (_) {}
+        },
       };
+
+      if (
+        this._coreMeta?.options?.useKeyboard ||
+        this.system?.toLowerCase() === 'dos'
+      ) {
+        mod.gameManager.setKeyboardEnabled(true);
+      }
+
+      if (this._coreMeta?.options?.supportsMouse && this.context?.canvas) {
+        const canvas = this.context.canvas;
+        canvas.addEventListener('click', () => {
+          if (
+            typeof document !== 'undefined' &&
+            document.pointerLockElement !== canvas
+          ) {
+            canvas.requestPointerLock?.();
+          }
+        });
+      }
     } catch (_) {}
   }
 
@@ -1577,6 +1652,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
   }> {
     const cached = MEMORY_CACHE.get(this.id);
     if (cached) {
+      this._coreMeta = cached.coreMeta;
       return { jsBytes: cached.js, wasmBytes: cached.wasm };
     }
 
@@ -1600,8 +1676,10 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
           );
           const js = unpacked[cfg.jsName];
           const wasm = unpacked[cfg.wasmName];
+          const coreMeta = parseCoreJson(unpacked);
           if (js && wasm) {
-            MEMORY_CACHE.set(this.id, { js, wasm });
+            this._coreMeta = coreMeta;
+            MEMORY_CACHE.set(this.id, { js, wasm, coreMeta });
             return { jsBytes: js, wasmBytes: wasm };
           }
         }
@@ -1679,6 +1757,7 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
 
     const js = unpacked[cfg.jsName];
     const wasm = unpacked[cfg.wasmName];
+    const coreMeta = parseCoreJson(unpacked);
 
     if (!js || !wasm) {
       throw new Error(
@@ -1686,7 +1765,8 @@ export class EmulatorJSAdapter extends BaseCoreBridge {
       );
     }
 
-    MEMORY_CACHE.set(this.id, { js, wasm });
+    this._coreMeta = coreMeta;
+    MEMORY_CACHE.set(this.id, { js, wasm, coreMeta });
     return { jsBytes: js, wasmBytes: wasm };
   }
 
